@@ -32,8 +32,9 @@ export interface AppConfig {
   allowedOpenIds: string[];
   codexWorkspaceRoot: string;
   codexModel?: string;
-  codexApprovalPolicy: string;
-  codexSandboxMode: string;
+  codexApprovalPolicy: CodexApprovalPolicy;
+  codexSandboxMode: CodexSandboxMode;
+  codexTimeoutMs: number;
   port: number;
 }
 
@@ -41,3 +42,7 @@ export interface RuntimeSummaryInput {
   transport: 'long-connection';
   workspaceRoot: string;
 }
+
+export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';
+
+export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';

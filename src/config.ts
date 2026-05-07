@@ -4,7 +4,11 @@ import type { AppConfig } from './types.js';
 
 const DEFAULT_APPROVAL_POLICY = 'never';
 const DEFAULT_SANDBOX_MODE = 'workspace-write';
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_PORT = 8787;
+
+const approvalPolicySchema = z.enum(['untrusted', 'on-failure', 'on-request', 'never']);
+const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']);
 
 const envSchema = z.object({
   FEISHU_APP_ID: z.string().trim().min(1, 'FEISHU_APP_ID is required'),
@@ -12,8 +16,9 @@ const envSchema = z.object({
   ALLOWED_OPEN_IDS: z.string().trim().min(1, 'ALLOWED_OPEN_IDS is required'),
   CODEX_WORKSPACE_ROOT: z.string().trim().min(1, 'CODEX_WORKSPACE_ROOT is required'),
   CODEX_MODEL: z.string().trim().min(1).optional(),
-  CODEX_APPROVAL_POLICY: z.string().trim().min(1).default(DEFAULT_APPROVAL_POLICY),
-  CODEX_SANDBOX_MODE: z.string().trim().min(1).default(DEFAULT_SANDBOX_MODE),
+  CODEX_APPROVAL_POLICY: approvalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+  CODEX_SANDBOX_MODE: sandboxModeSchema.default(DEFAULT_SANDBOX_MODE),
+  CODEX_TIMEOUT_MS: z.coerce.number().int().positive().default(DEFAULT_TIMEOUT_MS),
   PORT: z.coerce.number().int().positive().default(DEFAULT_PORT),
 });
 
@@ -63,6 +68,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     codexModel: values.CODEX_MODEL,
     codexApprovalPolicy: values.CODEX_APPROVAL_POLICY,
     codexSandboxMode: values.CODEX_SANDBOX_MODE,
+    codexTimeoutMs: values.CODEX_TIMEOUT_MS,
     port: values.PORT,
   };
 }
