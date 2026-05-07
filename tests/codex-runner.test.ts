@@ -23,6 +23,8 @@ describe('codex runner', () => {
       kind: 'ask',
       prompt: 'inspect repo',
       workspaceRoot: 'C:/workspace',
+      approvalPolicy: 'never',
+      model: 'gpt-5.5',
     });
 
     child.stdout.end('analysis complete');
@@ -37,7 +39,7 @@ describe('codex runner', () => {
     });
     expect(spawn).toHaveBeenCalledWith(
       'codex',
-      expect.arrayContaining(['exec', '--sandbox-mode', 'read-only', 'inspect repo']),
+      expect.arrayContaining(['-a', 'never', '-m', 'gpt-5.5', 'exec', '-s', 'read-only', 'inspect repo']),
       expect.objectContaining({ cwd: 'C:/workspace' }),
     );
   });
@@ -54,6 +56,7 @@ describe('codex runner', () => {
       prompt: 'update README',
       workspaceRoot: 'C:/workspace',
       timeoutMs: 25,
+      sandboxMode: 'danger-full-access',
     });
 
     await vi.advanceTimersByTimeAsync(25);
@@ -70,7 +73,7 @@ describe('codex runner', () => {
     expect(child.kill).toHaveBeenCalled();
     expect(spawn).toHaveBeenCalledWith(
       'codex',
-      expect.arrayContaining(['exec', '--sandbox-mode', 'workspace-write', 'update README']),
+      expect.arrayContaining(['exec', '-s', 'danger-full-access', 'update README']),
       expect.objectContaining({ cwd: 'C:/workspace' }),
     );
   });

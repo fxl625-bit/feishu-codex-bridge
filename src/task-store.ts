@@ -38,6 +38,7 @@ export interface UpdateTaskInput {
 export interface TaskStore {
   create(input: CreateTaskInput): Promise<TaskRecord>;
   get(taskId: string): Promise<TaskRecord | undefined>;
+  getLatestBySenderOpenId(senderOpenId: string): Promise<TaskRecord | undefined>;
   update(taskId: string, update: UpdateTaskInput): Promise<TaskRecord | undefined>;
 }
 
@@ -71,6 +72,12 @@ export function createTaskStore(options: { dataFile: string }): TaskStore {
     async get(taskId) {
       const state = await loadState(options.dataFile);
       return state.tasks.find((task) => task.id === taskId);
+    },
+
+    async getLatestBySenderOpenId(senderOpenId) {
+      const state = await loadState(options.dataFile);
+      const matches = state.tasks.filter((task) => task.senderOpenId === senderOpenId);
+      return matches.at(-1);
     },
 
     async update(taskId, update) {

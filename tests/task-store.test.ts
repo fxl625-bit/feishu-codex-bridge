@@ -85,4 +85,34 @@ describe('task store', () => {
     });
     expect(loaded?.updatedAt).not.toBe(task.updatedAt);
   });
+
+  it('returns the latest task for a sender', async () => {
+    const dataFile = await createTempDataFile();
+    const store = createTaskStore({ dataFile });
+
+    await store.create({
+      chatId: 'oc_1',
+      senderOpenId: 'ou_1',
+      kind: 'ask',
+      prompt: 'first',
+    });
+    const latestTask = await store.create({
+      chatId: 'oc_1',
+      senderOpenId: 'ou_1',
+      kind: 'run',
+      prompt: 'second',
+    });
+
+    await store.create({
+      chatId: 'oc_2',
+      senderOpenId: 'ou_2',
+      kind: 'ask',
+      prompt: 'other',
+    });
+
+    await expect(store.getLatestBySenderOpenId('ou_1')).resolves.toMatchObject({
+      id: latestTask.id,
+      prompt: 'second',
+    });
+  });
 });

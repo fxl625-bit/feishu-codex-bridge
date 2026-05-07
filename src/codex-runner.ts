@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import type { CodexApprovalPolicy, CodexSandboxMode } from './types.js';
 
 export type CodexJobKind = 'ask' | 'run';
 
@@ -7,6 +8,9 @@ export interface CodexRunRequest {
   prompt: string;
   workspaceRoot: string;
   timeoutMs?: number;
+  model?: string;
+  approvalPolicy?: CodexApprovalPolicy;
+  sandboxMode?: CodexSandboxMode;
 }
 
 export interface CodexRunResult {
@@ -100,11 +104,28 @@ export function createCodexRunner(options: CodexRunnerOptions = {}) {
 }
 
 function buildArgs(job: CodexRunRequest): string[] {
-  return ['exec', '--sandbox-mode', sandboxModeFor(job.kind), job.prompt];
+  const args: string[] = [];
+
+  if (job.approvalPolicy) {
+    args.push('-a', job.approvalPolicy);
+  }
+
+  if (job.model) {
+    args.push('-m', job.model);
+  }
+
+  args.push('exec', '-s', sandboxModeFor(job));
+  args.push(job.prompt);
+
+  return args;
 }
 
-function sandboxModeFor(kind: CodexJobKind): string {
-  return kind === 'ask' ? 'read-only' : 'workspace-write';
+function sandboxModeFor(job: CodexRunRequest): CodexSandboxMode {
+  if (job.kind === 'ask') {
+    return 'read-only';
+  }
+
+  return job.sandboxMode ?? 'workspace-write';
 }
 
 function clearTimer(timer: NodeJS.Timeout | undefined): void {

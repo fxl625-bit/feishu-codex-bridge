@@ -19,6 +19,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.62.1",
+    "dotenv": "^17.4.2",
     "zod": "^4.1.12"
   }
 }
