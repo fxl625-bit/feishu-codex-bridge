@@ -30,6 +30,7 @@ describe('task store', () => {
 
     const task = await store.create({
       chatId: 'oc_1',
+      sessionId: 'session_oc_1',
       senderOpenId: 'ou_1',
       kind: 'ask',
       prompt: 'inspect repo',
@@ -40,6 +41,7 @@ describe('task store', () => {
     expect(loaded).toMatchObject({
       id: task.id,
       chatId: 'oc_1',
+      sessionId: 'session_oc_1',
       senderOpenId: 'ou_1',
       kind: 'ask',
       prompt: 'inspect repo',
@@ -53,6 +55,7 @@ describe('task store', () => {
     const store = createTaskStore({ dataFile });
     const task = await store.create({
       chatId: 'oc_1',
+      sessionId: 'session_oc_1',
       senderOpenId: 'ou_1',
       kind: 'run',
       prompt: 'update README',
@@ -74,6 +77,7 @@ describe('task store', () => {
 
     expect(loaded).toMatchObject({
       id: task.id,
+      sessionId: 'session_oc_1',
       status: 'completed',
       summary: 'Updated README',
       result: {
@@ -92,12 +96,14 @@ describe('task store', () => {
 
     await store.create({
       chatId: 'oc_1',
+      sessionId: 'session_oc_1',
       senderOpenId: 'ou_1',
       kind: 'ask',
       prompt: 'first',
     });
     const latestTask = await store.create({
       chatId: 'oc_1',
+      sessionId: 'session_oc_1',
       senderOpenId: 'ou_1',
       kind: 'run',
       prompt: 'second',
@@ -105,6 +111,7 @@ describe('task store', () => {
 
     await store.create({
       chatId: 'oc_2',
+      sessionId: 'session_oc_2',
       senderOpenId: 'ou_2',
       kind: 'ask',
       prompt: 'other',

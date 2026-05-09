@@ -5,6 +5,7 @@ export type TaskKind = 'ask' | 'run';
 
 export interface TaskRecord {
   id: string;
+  sessionId: string;
   chatId: string;
   senderOpenId: string;
   kind: TaskKind;
@@ -23,6 +24,7 @@ export interface TaskRecord {
 }
 
 export interface CreateTaskInput {
+  sessionId: string;
   chatId: string;
   senderOpenId: string;
   kind: TaskKind;
@@ -55,6 +57,7 @@ export function createTaskStore(options: { dataFile: string }): TaskStore {
       const timestamp = nextTimestamp();
       const task: TaskRecord = {
         id: createTaskId(),
+        sessionId: input.sessionId,
         chatId: input.chatId,
         senderOpenId: input.senderOpenId,
         kind: input.kind,

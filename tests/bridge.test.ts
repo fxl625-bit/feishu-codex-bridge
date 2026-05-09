@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  acceptedMessage,
   createBridge,
   unauthorizedMessage,
   type BridgeInboundMessage,
@@ -45,7 +44,7 @@ describe('bridge', () => {
     ]);
   });
 
-  it('sends an acknowledgement before running an authorized task', async () => {
+  it('runs authorized tasks without sending a bridge acknowledgement', async () => {
     const replyTexts: string[] = [];
     const runInputs: BridgeInboundMessage[] = [];
 
@@ -67,11 +66,11 @@ describe('bridge', () => {
 
     await bridge.handleMessage(inbound);
 
-    expect(replyTexts).toEqual(['Request received. Starting task.']);
+    expect(replyTexts).toEqual([]);
     expect(runInputs).toEqual([inbound]);
   });
 
-  it('returns after acknowledgement while the task continues asynchronously', async () => {
+  it('returns while the task continues asynchronously without a visible ack', async () => {
     const events: string[] = [];
     let resolveTask: (() => void) | undefined;
     let taskStarted = false;
@@ -101,10 +100,10 @@ describe('bridge', () => {
     handleReturned = true;
     events.push('after-return');
 
-    expect(events[0]).toBe(`reply:${acceptedMessage}`);
     expect(events).toContain('after-call');
     expect(events).toContain('after-return');
     expect(events).not.toContain('task:end');
+    expect(events.find((event) => event.startsWith('reply:'))).toBeUndefined();
 
     resolveTask?.();
     await taskFinished;
@@ -114,23 +113,25 @@ describe('bridge', () => {
     expect(events.at(-1)).toBe('task:end');
   });
 
-  it('still runs an authorized task when acknowledgement send fails', async () => {
-    const events: string[] = [];
+  it('reports task errors through onError', async () => {
+    const failures: unknown[] = [];
 
     const bridge = createBridge({
       isAuthorized: () => true,
-      sendReply: async () => {
-        events.push('reply:attempt');
-        throw new Error('send failed');
-      },
       runTask: async () => {
-        events.push('task:run');
+        throw new Error('task failed');
+      },
+      sendReply: async () => {},
+      onError(error) {
+        failures.push(error);
       },
     });
 
     await bridge.handleMessage(createMessage({ senderOpenId: 'ou_ok' }));
+    await Promise.resolve();
 
-    expect(events).toEqual(['reply:attempt', 'task:run']);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(Error);
   });
 
   it('can wire a transport handler to the same message pipeline', async () => {

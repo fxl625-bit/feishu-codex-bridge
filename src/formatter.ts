@@ -1,4 +1,5 @@
 const MAX_MESSAGE_LENGTH = 240;
+const DEFAULT_HISTORY_COUNT = 5;
 
 export interface CompletionMessageInput {
   id: string;
@@ -21,17 +22,34 @@ export interface StatusMessageInput {
   summary?: string;
 }
 
-export function formatCompletionMessage(task: CompletionMessageInput): string {
-  const details = firstNonEmptyLine(task.stderr) ?? firstNonEmptyLine(task.stdout);
-  const message = details
-    ? `Task ${task.id} [${task.status}]\n${task.summary}\n${details}`
-    : `Task ${task.id} [${task.status}]\n${task.summary}`;
-
-  return truncate(message, MAX_MESSAGE_LENGTH);
+export interface SessionSummaryMessageInput {
+  sessionId: string;
+  chatId: string;
+  participants: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastTaskId?: string;
+  messages: Array<{ text: string }>;
 }
 
-export function formatQueuedMessage(task: QueuedMessageInput): string {
-  return truncate(`Queued ${task.kind} task ${task.id}\n${task.prompt}`, MAX_MESSAGE_LENGTH);
+export interface HistoryMessageInput {
+  id: string;
+  direction: 'inbound' | 'outbound' | 'local';
+  source: 'feishu' | 'codex' | 'pc';
+  text: string;
+  timestamp: string;
+}
+
+export function formatCompletionMessage(task: CompletionMessageInput): string {
+  if (task.status === 'completed') {
+    return truncate(task.summary, MAX_MESSAGE_LENGTH);
+  }
+
+  const details = firstUsefulLine(task.stderr) ?? firstUsefulLine(task.stdout);
+  const body = details && details !== task.summary ? `${task.summary}\n${details}` : task.summary;
+  const message = `Task ${task.id} [${task.status}]\n${body}`;
+
+  return truncate(message, MAX_MESSAGE_LENGTH);
 }
 
 export function formatStatusMessage(task: StatusMessageInput | undefined): string {
@@ -45,32 +63,127 @@ export function formatStatusMessage(task: StatusMessageInput | undefined): strin
   );
 }
 
+export function formatSessionMessage(session: SessionSummaryMessageInput | undefined): string {
+  if (!session) {
+    return 'No active session for this chat.';
+  }
+
+  return truncate(
+    [
+      session.sessionId,
+      session.lastTaskId ? `last ${session.lastTaskId}` : undefined,
+      session.messages.at(-1)?.text,
+    ]
+      .filter(Boolean)
+      .join(' | '),
+    MAX_MESSAGE_LENGTH,
+  );
+}
+
+export function formatSessionsMessage(sessions: SessionSummaryMessageInput[]): string {
+  if (sessions.length === 0) {
+    return 'No sessions found.';
+  }
+
+  return truncate(
+    sessions
+      .map((session) =>
+        [
+          session.sessionId,
+          session.lastTaskId ? `last ${session.lastTaskId}` : undefined,
+          session.messages.at(-1)?.text,
+        ]
+          .filter(Boolean)
+          .join(' | '),
+      )
+      .join('\n'),
+    MAX_MESSAGE_LENGTH,
+  );
+}
+
+export function formatHistoryMessage(
+  history: HistoryMessageInput[],
+  count = DEFAULT_HISTORY_COUNT,
+): string {
+  if (history.length === 0) {
+    return 'No recent history for this chat.';
+  }
+
+  return truncate(
+    history
+      .slice(-count)
+      .map((entry) => `${historyLabel(entry)} ${entry.text}`)
+      .join('\n'),
+    MAX_MESSAGE_LENGTH,
+  );
+}
+
 export function summarizeCodexResult(input: {
   exitCode: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  lastMessage?: string;
 }): string {
   if (input.timedOut) {
     return 'Codex timed out before completing the task.';
   }
 
   if (input.exitCode === 0) {
-    return firstNonEmptyLine(input.stdout) ?? 'Codex completed successfully.';
+    return firstUsefulLine(input.lastMessage) ?? firstUsefulLine(input.stdout) ?? 'Codex completed successfully.';
   }
 
   if (input.exitCode === null) {
-    return firstNonEmptyLine(input.stderr) ?? 'Codex exited unexpectedly.';
+    return firstUsefulLine(input.stderr) ?? 'Codex exited unexpectedly.';
   }
 
-  return firstNonEmptyLine(input.stderr) ?? `Codex exited with code ${input.exitCode}.`;
+  return firstUsefulLine(input.stderr) ?? `Codex exited with code ${input.exitCode}.`;
 }
 
-function firstNonEmptyLine(value: string | undefined): string | undefined {
+function firstUsefulLine(value: string | undefined): string | undefined {
   return value
     ?.split(/\r?\n/u)
     .map((line) => line.trim())
-    .find(Boolean);
+    .find((line) => Boolean(line) && !isNoiseLine(line));
+}
+
+function isNoiseLine(line: string): boolean {
+  return (
+    line === 'Reading additional input from stdin...' ||
+    line.startsWith('OpenAI Codex v') ||
+    line.startsWith('workdir:') ||
+    line.startsWith('model:') ||
+    line.startsWith('provider:') ||
+    line.startsWith('approval:') ||
+    line.startsWith('sandbox:') ||
+    line.startsWith('reasoning effort:') ||
+    line.startsWith('reasoning summaries:') ||
+    line.startsWith('session id:') ||
+    line === 'Request received. Starting task.' ||
+    line.startsWith('Queued ask task ') ||
+    line.startsWith('Queued run task ') ||
+    line.startsWith('Task task_') ||
+    line === '--------' ||
+    line === 'user' ||
+    line === 'codex' ||
+    line === 'exec' ||
+    line.startsWith('tokens used') ||
+    line.startsWith('WARN ') ||
+    line.includes('WARN codex_') ||
+    line.includes('succeeded in ')
+  );
+}
+
+function historyLabel(entry: HistoryMessageInput): string {
+  if (entry.source === 'pc') {
+    return 'PC:';
+  }
+
+  if (entry.direction === 'outbound') {
+    return 'Codex:';
+  }
+
+  return 'User:';
 }
 
 function truncate(value: string, maxLength: number): string {

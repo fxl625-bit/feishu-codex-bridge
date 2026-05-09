@@ -9,8 +9,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/index.ts",
+    "sessions:list": "tsx src/session-cli.ts list",
+    "sessions:show": "tsx src/session-cli.ts show",
+    "sessions:ask": "tsx src/session-cli.ts ask",
+    "sessions:run": "tsx src/session-cli.ts run",
     "start": "node dist/index.js",
-    "test": "vitest"
+    "test": "vitest",
+    "service:install": "powershell -ExecutionPolicy Bypass -File scripts/install-bridge-service.ps1",
+    "service:start": "powershell -ExecutionPolicy Bypass -File scripts/start-bridge.ps1",
+    "service:stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-bridge.ps1",
+    "service:status": "powershell -ExecutionPolicy Bypass -File scripts/status-bridge.ps1",
+    "service:logs": "powershell -ExecutionPolicy Bypass -File scripts/logs-bridge.ps1"
   },
   "devDependencies": {
     "@types/node": "^24.9.1",

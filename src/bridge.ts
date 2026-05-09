@@ -11,13 +11,12 @@ export type BridgeReply = {
 };
 
 export const unauthorizedMessage = 'Unauthorized';
-export const acceptedMessage = 'Request received. Starting task.';
 
 export type BridgeDependencies = {
   isAuthorized: (senderOpenId: string, message: BridgeInboundMessage) => boolean;
   sendReply: (reply: BridgeReply) => Promise<void>;
   runTask: (message: BridgeInboundMessage) => Promise<unknown>;
-  onError?: (error: unknown, context: { phase: 'ack' | 'task'; message: BridgeInboundMessage }) => void;
+  onError?: (error: unknown, context: { phase: 'task'; message: BridgeInboundMessage }) => void;
 };
 
 export function createBridge(deps: BridgeDependencies) {
@@ -28,15 +27,6 @@ export function createBridge(deps: BridgeDependencies) {
         text: unauthorizedMessage,
       });
       return;
-    }
-
-    try {
-      await deps.sendReply({
-        chatId: message.chatId,
-        text: acceptedMessage,
-      });
-    } catch (error) {
-      deps.onError?.(error, { phase: 'ack', message });
     }
 
     void deps.runTask(message).catch((error) => {

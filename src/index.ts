@@ -1,16 +1,18 @@
 import * as http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as Lark from '@larksuiteoapi/node-sdk';
-import { config as loadDotenv } from 'dotenv';
-import { loadConfig } from './config.js';
-import { createCodexRunner } from './codex-runner.js';
+import { config as loadDotenv, parse as parseDotenv } from 'dotenv';
 import { isAuthorizedUser } from './authz.js';
 import { createBridge, type BridgeDependencies } from './bridge.js';
+import { loadConfig, resolveRuntimePaths } from './config.js';
+import { createConversationStore, type ConversationStore } from './conversation-store.js';
+import { createCodexRunner } from './codex-runner.js';
 import { createFeishuService, type FeishuServiceDependencies } from './feishu.js';
 import { createTaskRuntime } from './runtime.js';
 import { createTaskStore, type TaskStore } from './task-store.js';
-import type { AppConfig, AppMetadata, RuntimeSummaryInput } from './types.js';
+import type { AppConfig, AppMetadata, RuntimePaths, RuntimeSummaryInput } from './types.js';
 
 const APP_NAME = 'feishu-codex-bridge';
 const APP_VERSION = '0.1.0';
@@ -81,6 +83,8 @@ export interface BridgeApplicationDependencies {
   config: AppConfig;
   transport: FeishuServiceDependencies['transport'];
   store: TaskStore;
+  conversationStore: ConversationStore;
+  runtimePaths: RuntimePaths;
   runner?: ReturnType<typeof createCodexRunner>;
   onError?: (error: unknown) => void;
 }
@@ -98,6 +102,8 @@ export function createBridgeApplication(deps: BridgeApplicationDependencies) {
   const taskRuntime = createTaskRuntime({
     config: deps.config,
     store: deps.store,
+    conversationStore: deps.conversationStore,
+    runtimePaths: deps.runtimePaths,
     runner,
     sendReply,
     onError(error) {
@@ -135,6 +141,31 @@ export function loadEnvironmentFiles(cwd = process.cwd()): void {
     path: path.join(cwd, '.env'),
     override: false,
   });
+}
+
+export function loadApplicationEnv(
+  cwd = process.cwd(),
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  const mergedEnv: Record<string, string | undefined> = { ...env };
+
+  for (const fileName of ['.env', '.env.local']) {
+    const filePath = path.join(cwd, fileName);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+
+    const parsed = parseDotenv(fs.readFileSync(filePath));
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value.trim().length === 0) {
+        continue;
+      }
+
+      mergedEnv[key] = value;
+    }
+  }
+
+  return mergedEnv;
 }
 
 export function createLarkTransport(config: Pick<AppConfig, 'feishuAppId' | 'feishuAppSecret'>) {
@@ -197,21 +228,32 @@ export function startHealthServer(port: number, summary: string) {
     response.end(summary);
   });
 
-  server.listen(port);
+  server.listen(port, '127.0.0.1');
   return server;
 }
 
 export async function startApplication(env: Record<string, string | undefined> = process.env) {
   loadEnvironmentFiles();
-  const config = loadConfig(env);
+  const applicationEnv = loadApplicationEnv(process.cwd(), env);
+  const config = loadConfig(applicationEnv);
+  const runtimePaths = resolveRuntimePaths({
+    env: applicationEnv,
+    localAppData: applicationEnv.LOCALAPPDATA,
+    port: config.port,
+  });
   const transport = createLarkTransport(config);
   const store = createTaskStore({
-    dataFile: path.join(process.cwd(), 'data', 'tasks.json'),
+    dataFile: runtimePaths.tasksFile,
+  });
+  const conversationStore = createConversationStore({
+    dataFile: runtimePaths.conversationsFile,
   });
   const app = createBridgeApplication({
     config,
     transport,
     store,
+    conversationStore,
+    runtimePaths,
     onError(error) {
       console.error('[bridge]', error);
     },
@@ -226,13 +268,16 @@ export async function startApplication(env: Record<string, string | undefined> =
     config,
     summary,
     healthServer,
+    runtimePaths,
   };
 }
 
 async function main() {
   const application = await startApplication(process.env);
   console.log(application.summary);
-  console.log(`Health endpoint: http://127.0.0.1:${application.config.port}/health`);
+  console.log(`Health endpoint: ${application.runtimePaths.healthUrl}`);
+  console.log(`Task store: ${application.runtimePaths.tasksFile}`);
+  console.log(`Conversation store: ${application.runtimePaths.conversationsFile}`);
 }
 
 const isDirectRun =

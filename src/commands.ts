@@ -5,6 +5,9 @@ const HELP_TEXT = [
   '/ask <prompt>',
   '/run <prompt>',
   '/status [task-id]',
+  '/session',
+  '/sessions',
+  '/history [count]',
   '/help',
 ].join('\n');
 
@@ -23,6 +26,19 @@ function requirePrompt(prompt: string): string {
   }
 
   return normalizedPrompt;
+}
+
+function parsePositiveCount(value: string): number {
+  if (!/^\d+$/u.test(value)) {
+    throw new CommandParseError();
+  }
+
+  const count = Number.parseInt(value, 10);
+  if (count < 1) {
+    throw new CommandParseError();
+  }
+
+  return count;
 }
 
 export function getCommandHelpText(): string {
@@ -61,6 +77,19 @@ export function parseCommand(text: string): BridgeCommand {
       return {
         kind: 'status',
         taskId: argumentText || undefined,
+      };
+    case '/session':
+      return {
+        kind: 'session',
+      };
+    case '/sessions':
+      return {
+        kind: 'sessions',
+      };
+    case '/history':
+      return {
+        kind: 'history',
+        count: argumentText ? parsePositiveCount(argumentText) : undefined,
       };
     case '/help':
       return {

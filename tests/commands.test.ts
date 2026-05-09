@@ -29,6 +29,19 @@ describe('parseCommand', () => {
     });
   });
 
+  it('parses session inspection commands', () => {
+    expect(parseCommand('/session')).toMatchObject({
+      kind: 'session',
+    });
+    expect(parseCommand('/sessions')).toMatchObject({
+      kind: 'sessions',
+    });
+    expect(parseCommand('/history 8')).toMatchObject({
+      kind: 'history',
+      count: 8,
+    });
+  });
+
   it('raises a usage error when a prompt command is empty', () => {
     expect(() => parseCommand('/ask   ')).toThrowError(CommandParseError);
   });
