@@ -246,16 +246,24 @@ async function ensureGlobalStateVisibility(input: {
     state = {};
   }
 
-  const projectlessThreadIds = ensureStringArray(state, 'projectless-thread-ids');
+  const atomState = ensureObjectMap(state, 'electron-persisted-atom-state');
+  const legacyProjectlessThreadIds = ensureStringArray(state, 'projectless-thread-ids');
+  const projectlessThreadIds = ensureStringArray(atomState, 'projectless-thread-ids');
+  mergeUniqueStrings(projectlessThreadIds, legacyProjectlessThreadIds);
   if (!projectlessThreadIds.includes(input.sessionId)) {
     projectlessThreadIds.push(input.sessionId);
   }
 
+  const legacyWorkspaceHints = ensureStringMap(state, 'thread-workspace-root-hints');
   if (input.workspaceRoot) {
-    const workspaceHints = ensureStringMap(state, 'thread-workspace-root-hints');
+    const workspaceHints = ensureStringMap(atomState, 'thread-workspace-root-hints');
+    mergeStringMap(workspaceHints, legacyWorkspaceHints);
     if (!workspaceHints[input.sessionId]) {
       workspaceHints[input.sessionId] = input.workspaceRoot;
     }
+  } else {
+    const workspaceHints = ensureStringMap(atomState, 'thread-workspace-root-hints');
+    mergeStringMap(workspaceHints, legacyWorkspaceHints);
   }
 
   await writeFile(input.globalStateFile, JSON.stringify(state), 'utf8');
@@ -291,6 +299,33 @@ function ensureStringMap(target: Record<string, unknown>, key: string): Record<s
   const created: Record<string, string> = {};
   target[key] = created;
   return created;
+}
+
+function ensureObjectMap(target: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = target[key];
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  const created: Record<string, unknown> = {};
+  target[key] = created;
+  return created;
+}
+
+function mergeUniqueStrings(target: string[], source: string[]): void {
+  for (const value of source) {
+    if (!target.includes(value)) {
+      target.push(value);
+    }
+  }
+}
+
+function mergeStringMap(target: Record<string, string>, source: Record<string, string>): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (!(key in target)) {
+      target[key] = value;
+    }
+  }
 }
 
 function escapeJsonString(value: string): string {

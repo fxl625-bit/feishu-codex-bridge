@@ -81,9 +81,11 @@ describe('codex session visibility', () => {
     await writeFile(
       globalStateFile,
       JSON.stringify({
-        'projectless-thread-ids': ['019e1500-4275-7db1-9f23-914f8afd973d'],
-        'thread-workspace-root-hints': {
-          '019e1500-4275-7db1-9f23-914f8afd973d': 'C:/Users/example/Documents/Codex',
+        'electron-persisted-atom-state': {
+          'projectless-thread-ids': ['019e1500-4275-7db1-9f23-914f8afd973d'],
+          'thread-workspace-root-hints': {
+            '019e1500-4275-7db1-9f23-914f8afd973d': 'C:/Users/example/Documents/Codex',
+          },
         },
       }),
       'utf8',
@@ -105,13 +107,17 @@ describe('codex session visibility', () => {
     expect(updatedSession).toContain('"thread_name":"Feishu: please reply bridge inbound ok"');
 
     const updatedGlobalState = JSON.parse(await readFile(globalStateFile, 'utf8')) as {
-      'projectless-thread-ids': string[];
-      'thread-workspace-root-hints': Record<string, string>;
+      'electron-persisted-atom-state': {
+        'projectless-thread-ids': string[];
+        'thread-workspace-root-hints': Record<string, string>;
+      };
     };
-    expect(updatedGlobalState['projectless-thread-ids']).toContain(
+    expect(updatedGlobalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
       '019e14e8-5053-7b60-af61-6963d491b978',
     );
-    expect(updatedGlobalState['thread-workspace-root-hints']).toMatchObject({
+    expect(
+      updatedGlobalState['electron-persisted-atom-state']['thread-workspace-root-hints'],
+    ).toMatchObject({
       '019e14e8-5053-7b60-af61-6963d491b978': 'F:/CODEX/workspaces/feishu-codex',
     });
   });
@@ -179,5 +185,85 @@ describe('codex session visibility', () => {
     const updatedIndex = await readFile(sessionIndexFile, 'utf8');
     expect(updatedIndex).toContain('Feishu: existing thread title');
     expect(updatedIndex).not.toContain('a different later prompt should not rename the thread');
+  });
+
+  it('migrates legacy top-level visibility state into the persisted atom state', async () => {
+    const directory = await createTempDirectory();
+    const codexHome = path.join(directory, '.codex');
+    const sessionsDir = path.join(codexHome, 'sessions', '2026', '05', '11');
+    const sessionFile = path.join(
+      sessionsDir,
+      'rollout-2026-05-11T10-40-29-019e14e8-5053-7b60-af61-6963d491b978.jsonl',
+    );
+    const globalStateFile = path.join(codexHome, '.codex-global-state.json');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      sessionFile,
+      [
+        JSON.stringify({
+          timestamp: '2026-05-11T02:40:30.066Z',
+          type: 'session_meta',
+          payload: {
+            id: '019e14e8-5053-7b60-af61-6963d491b978',
+            timestamp: '2026-05-11T02:40:29.837Z',
+            cwd: 'F:/CODEX/workspaces/feishu-codex',
+            originator: 'Codex Desktop',
+            cli_version: '0.120.0',
+            source: 'exec',
+          },
+        }),
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      globalStateFile,
+      JSON.stringify({
+        'projectless-thread-ids': ['019dddae-41bd-7a40-97de-68a4d7a9c95b'],
+        'thread-workspace-root-hints': {
+          '019dddae-41bd-7a40-97de-68a4d7a9c95b': 'C:/Users/example/Documents/Codex',
+        },
+        'electron-persisted-atom-state': {
+          'projectless-thread-ids': ['019e1500-4275-7db1-9f23-914f8afd973d'],
+          'thread-workspace-root-hints': {
+            '019e1500-4275-7db1-9f23-914f8afd973d': 'C:/Users/example/Documents/Codex',
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    await ensureCodexSessionVisible({
+      codexHomeDir: codexHome,
+      sessionId: '019e14e8-5053-7b60-af61-6963d491b978',
+      prompt: 'please reply bridge inbound ok',
+      updatedAt: '2026-05-11T02:41:58.085Z',
+    });
+
+    const updatedGlobalState = JSON.parse(await readFile(globalStateFile, 'utf8')) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+      'electron-persisted-atom-state': {
+        'projectless-thread-ids': string[];
+        'thread-workspace-root-hints': Record<string, string>;
+      };
+    };
+    expect(updatedGlobalState['projectless-thread-ids']).toContain(
+      '019dddae-41bd-7a40-97de-68a4d7a9c95b',
+    );
+    expect(updatedGlobalState['electron-persisted-atom-state']['projectless-thread-ids']).toEqual(
+      expect.arrayContaining([
+        '019e1500-4275-7db1-9f23-914f8afd973d',
+        '019dddae-41bd-7a40-97de-68a4d7a9c95b',
+        '019e14e8-5053-7b60-af61-6963d491b978',
+      ]),
+    );
+    expect(
+      updatedGlobalState['electron-persisted-atom-state']['thread-workspace-root-hints'],
+    ).toMatchObject({
+      '019e14e8-5053-7b60-af61-6963d491b978': 'F:/CODEX/workspaces/feishu-codex',
+      '019dddae-41bd-7a40-97de-68a4d7a9c95b': 'C:/Users/example/Documents/Codex',
+      '019e1500-4275-7db1-9f23-914f8afd973d': 'C:/Users/example/Documents/Codex',
+    });
   });
 });

@@ -189,11 +189,67 @@ describe('task runtime', () => {
     const globalState = JSON.parse(
       await readFile(path.join(directory, '.codex', '.codex-global-state.json'), 'utf8'),
     ) as {
-      'projectless-thread-ids': string[];
-      'thread-workspace-root-hints': Record<string, string>;
+      'electron-persisted-atom-state': {
+        'projectless-thread-ids': string[];
+        'thread-workspace-root-hints': Record<string, string>;
+      };
     };
-    expect(globalState['projectless-thread-ids']).toContain('sess_1');
-    expect(globalState['thread-workspace-root-hints']).toMatchObject({
+    expect(globalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
+      'sess_1',
+    );
+    expect(
+      globalState['electron-persisted-atom-state']['thread-workspace-root-hints'],
+    ).toMatchObject({
+      sess_1: 'C:/workspace',
+    });
+  });
+
+  it('refreshes desktop-visible session state after a successful native resume', async () => {
+    const directory = await createTempDirectory();
+    const nativeRunner = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'first',
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'second',
+        }),
+    };
+    const harness = createRuntimeHarness(directory, { nativeRunner });
+
+    await seedNativeSessionArtifacts(directory, 'sess_1');
+
+    await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
+    await harness.runtime.handleInboundMessage(
+      createInboundMessage({ messageId: 'om_2', text: '/ask second' }),
+    );
+    await harness.runtime.idle();
+
+    const globalState = JSON.parse(
+      await readFile(path.join(directory, '.codex', '.codex-global-state.json'), 'utf8'),
+    ) as {
+      'electron-persisted-atom-state': {
+        'projectless-thread-ids': string[];
+        'thread-workspace-root-hints': Record<string, string>;
+      };
+    };
+    expect(globalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
+      'sess_1',
+    );
+    expect(
+      globalState['electron-persisted-atom-state']['thread-workspace-root-hints'],
+    ).toMatchObject({
       sess_1: 'C:/workspace',
     });
   });

@@ -325,6 +325,13 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
 
       if (resumed.exitCode === 0 && !resumed.timedOut) {
         await deps.nativeSessionStore.touch(task.chatId, task.kind);
+        await ensureCodexSessionVisible({
+          codexHomeDir: deps.runtimePaths.codexHomeDir,
+          sessionId: binding.codexSessionId,
+          prompt: task.prompt,
+          updatedAt: new Date().toISOString(),
+          workspaceRoot: binding.workspaceRoot,
+        });
         return resumed;
       }
 
