@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -67,6 +67,7 @@ function createRuntimeHarness(directory: string, overrides?: {
       archiveSyncDir: path.join(directory, 'archive'),
       runDir: path.join(directory, 'run'),
       nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
+      codexHomeDir: path.join(directory, '.codex'),
     },
     runner: {
       run: vi.fn(),
@@ -95,10 +96,34 @@ function createRuntimeHarness(directory: string, overrides?: {
   };
 }
 
+async function seedNativeSessionArtifacts(directory: string, sessionId: string): Promise<void> {
+  const sessionsDir = path.join(directory, '.codex', 'sessions', '2026', '05', '11');
+  const sessionFile = path.join(sessionsDir, `rollout-2026-05-11T10-40-29-${sessionId}.jsonl`);
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(
+    sessionFile,
+    `${JSON.stringify({
+      timestamp: '2026-05-11T02:40:30.066Z',
+      type: 'session_meta',
+      payload: {
+        id: sessionId,
+        timestamp: '2026-05-11T02:40:29.837Z',
+        cwd: 'C:/workspace',
+        originator: 'Codex Desktop',
+        cli_version: '0.120.0',
+        source: 'exec',
+      },
+    })}\n`,
+    'utf8',
+  );
+}
+
 describe('task runtime', () => {
   it('runs ask tasks and replies only with the natural completion message', async () => {
     const directory = await createTempDirectory();
     const harness = createRuntimeHarness(directory);
+
+    await seedNativeSessionArtifacts(directory, 'sess_1');
 
     await harness.runtime.handleInboundMessage(createInboundMessage());
     await harness.runtime.idle();
@@ -136,6 +161,8 @@ describe('task runtime', () => {
     };
     const harness = createRuntimeHarness(directory, { nativeRunner });
 
+    await seedNativeSessionArtifacts(directory, 'sess_1');
+
     await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
     await harness.runtime.handleInboundMessage(
       createInboundMessage({ messageId: 'om_2', text: '/ask second' }),
@@ -158,6 +185,17 @@ describe('task runtime', () => {
         prompt: 'second',
       }),
     );
+
+    const globalState = JSON.parse(
+      await readFile(path.join(directory, '.codex', '.codex-global-state.json'), 'utf8'),
+    ) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+    };
+    expect(globalState['projectless-thread-ids']).toContain('sess_1');
+    expect(globalState['thread-workspace-root-hints']).toMatchObject({
+      sess_1: 'C:/workspace',
+    });
   });
 
   it('recreates a binding if native resume fails because the session no longer exists', async () => {
@@ -190,6 +228,9 @@ describe('task runtime', () => {
         }),
     };
     const harness = createRuntimeHarness(directory, { nativeRunner });
+
+    await seedNativeSessionArtifacts(directory, 'sess_1');
+    await seedNativeSessionArtifacts(directory, 'sess_2');
 
     await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
     await harness.runtime.handleInboundMessage(
@@ -231,6 +272,8 @@ describe('task runtime', () => {
         })),
       },
     });
+
+    await seedNativeSessionArtifacts(directory, 'sess_1');
 
     await harness.runtime.handleInboundMessage(
       createInboundMessage({ text: 'What changed in this repo?' }),
@@ -301,6 +344,7 @@ describe('task runtime', () => {
         archiveSyncDir: path.join(directory, 'archive'),
         runDir: path.join(directory, 'run'),
         nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
+        codexHomeDir: path.join(directory, '.codex'),
       },
       runner: {
         run: vi.fn(),
@@ -360,6 +404,7 @@ describe('task runtime', () => {
         archiveSyncDir: path.join(directory, 'archive'),
         runDir: path.join(directory, 'run'),
         nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
+        codexHomeDir: path.join(directory, '.codex'),
       },
       runner: {
         run: vi.fn(),

@@ -130,6 +130,11 @@ export function resolveRuntimePaths(options: ResolveRuntimePathsOptions): Runtim
     'BRIDGE_ARCHIVE_SYNC_DIR',
     DEFAULT_ARCHIVE_SYNC_DIR,
   );
+  const codexHomeDir = resolveAbsoluteDirectory(
+    options.env,
+    'CODEX_HOME_DIR',
+    path.join(path.dirname(localAppData), '.codex'),
+  );
   const nativeSessionRegistryFile = resolveAbsoluteDirectory(
     options.env,
     'BRIDGE_NATIVE_SESSION_REGISTRY_FILE',
@@ -150,6 +155,7 @@ export function resolveRuntimePaths(options: ResolveRuntimePathsOptions): Runtim
     pidFile: path.join(runDir, 'bridge.pid'),
     healthUrl: `http://127.0.0.1:${options.port}/health`,
     archiveSyncDir,
+    codexHomeDir,
   };
 }
 

@@ -201,7 +201,12 @@ function Test-IsBridgeProcess {
     }
 
     $buildMarker = $Config.BuildMarker
-    return $commandLine.IndexOf($buildMarker, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    if ($commandLine.IndexOf($buildMarker, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        return $true
+    }
+
+    $entryMarker = [System.IO.Path]::DirectorySeparatorChar + 'dist' + [System.IO.Path]::DirectorySeparatorChar + 'index.js'
+    return $commandLine.IndexOf($entryMarker, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
 function Get-BridgeProcessByPort {

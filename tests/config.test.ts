@@ -135,6 +135,7 @@ describe('loadConfig', () => {
     expect(runtimePaths.archiveSyncDir).toBe(
       path.join('F:/obsidian/wiki/raw/AI-projects/feishu-codex-bridge', 'conversations'),
     );
+    expect(runtimePaths.codexHomeDir).toBe(path.join('C:/Users/example/AppData', '.codex'));
     expect(runtimePaths.healthUrl).toBe('http://127.0.0.1:8787/health');
   });
 
@@ -147,6 +148,7 @@ describe('loadConfig', () => {
         BRIDGE_RUN_DIR: 'D:/Bridge/run',
         BRIDGE_NATIVE_SESSION_REGISTRY_FILE: 'D:/Bridge/state/native-worker-registry.json',
         BRIDGE_ARCHIVE_SYNC_DIR: 'D:/Archive/bridge',
+        CODEX_HOME_DIR: 'D:/CodexHome',
       },
       localAppData: 'C:/Users/example/AppData/Local',
       port: 8899,
@@ -162,6 +164,7 @@ describe('loadConfig', () => {
     expect(runtimePaths.stderrLogFile).toBe(path.join('D:/Bridge', 'logs', 'bridge.stderr.log'));
     expect(runtimePaths.pidFile).toBe(path.join('D:/Bridge', 'run', 'bridge.pid'));
     expect(runtimePaths.archiveSyncDir).toBe('D:/Archive/bridge');
+    expect(runtimePaths.codexHomeDir).toBe('D:/CodexHome');
     expect(runtimePaths.healthUrl).toBe('http://127.0.0.1:8899/health');
   });
 

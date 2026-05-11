@@ -1,4 +1,5 @@
 import type { BridgeInboundMessage, BridgeReply } from './bridge.js';
+import { ensureCodexSessionVisible } from './codex-session-visibility.js';
 import { CommandParseError, getCommandHelpText, parseCommand } from './commands.js';
 import type { ConversationStore } from './conversation-store.js';
 import { writeConversationTranscript } from './conversation-export.js';
@@ -60,7 +61,7 @@ export interface TaskRuntimeDependencies {
   nativeSessionStore: NativeSessionStore;
   runtimePaths: Pick<
     RuntimePaths,
-    'conversationsDir' | 'archiveSyncDir' | 'runDir' | 'nativeSessionRegistryFile'
+    'conversationsDir' | 'archiveSyncDir' | 'runDir' | 'nativeSessionRegistryFile' | 'codexHomeDir'
   >;
   runner: OneShotRunner;
   nativeRunner: NativeTaskRuntimeRunner;
@@ -352,6 +353,12 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
         codexSessionId: started.sessionId,
         workerKind: task.kind,
         workspaceRoot: deps.config.codexWorkspaceRoot,
+      });
+      await ensureCodexSessionVisible({
+        codexHomeDir: deps.runtimePaths.codexHomeDir,
+        sessionId: started.sessionId,
+        prompt: task.prompt,
+        updatedAt: new Date().toISOString(),
       });
     }
 

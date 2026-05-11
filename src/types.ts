@@ -78,6 +78,7 @@ export interface RuntimePaths {
   pidFile: string;
   healthUrl: string;
   archiveSyncDir?: string;
+  codexHomeDir: string;
 }
 
 export type NativeSessionWorkerKind = 'ask' | 'run';
