@@ -3,6 +3,8 @@ import * as Lark from '@larksuiteoapi/node-sdk';
 import { loadConfig, resolveRuntimePaths } from './config.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { createCodexRunner } from './codex-runner.js';
+import { createNativeSessionRunner } from './native-session-runner.js';
+import { createNativeSessionStore } from './native-session-store.js';
 import { loadApplicationEnv } from './index.js';
 import { createTaskRuntime } from './runtime.js';
 import { createTaskStore, type TaskStore } from './task-store.js';
@@ -94,8 +96,13 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
         config,
         store,
         conversationStore,
+        nativeSessionStore: createNativeSessionStore({
+          dataFile: runtimePaths.nativeSessionRegistryFile,
+          idleTimeoutMs: config.nativeSessionIdleTimeoutMs,
+        }),
         runtimePaths,
         runner: createCodexRunner(),
+        nativeRunner: createNativeSessionRunner(),
         sendReply: async (reply) => {
           const client = new Lark.Client({
             appId: config.feishuAppId,

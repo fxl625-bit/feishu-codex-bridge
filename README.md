@@ -2,7 +2,7 @@
 
 Control Codex CLI from Feishu messages on a Windows PC and receive replies back in Feishu.
 
-The bridge now supports a local-visible, resumable session flow: each Feishu chat maps to a stable local conversation that can be inspected on the PC, resumed locally, and synced into the canonical archive.
+The bridge now supports a local-visible, resumable native-session flow: each Feishu `chatId` maps to a stable Codex-native session worker that can be inspected on the PC, resumed locally, and synced into the canonical archive.
 
 ## Planned MVP
 
@@ -11,6 +11,15 @@ The bridge now supports a local-visible, resumable session flow: each Feishu cha
 - Execute Codex CLI jobs locally with guardrails
 - Reply with task status and summarized results
 - Persist lightweight task history locally
+
+## Native Session Workers
+
+The bridge is moving away from per-message cold-start `codex exec` runs. In the native-worker model:
+
+- Each Feishu `chatId` is the stable key for one shared Codex-native session binding.
+- The bridge reuses that native session until it has been idle for 24 hours, then starts a fresh one on the next message.
+- Feishu replies remain final-answer-only. The bridge should not send queue banners, intermediate transcript chunks, or other execution noise back into chat.
+- Shared native-session visibility is a goal, not an assumption. When the bridge and local Codex clients use the same session storage, the session should be resumable from Codex CLI and may become visible in Codex desktop or VS Code, but operators must verify that behavior on the actual machine.
 
 ## Local Runtime Artifacts
 
@@ -26,6 +35,8 @@ With that layout, the bridge keeps session state under `F:\CODEX\feishu-codex-br
 - Task store: `F:\CODEX\feishu-codex-bridge\data\tasks.json`
 - Conversation store: `F:\CODEX\feishu-codex-bridge\data\conversations.json`
 - Conversation transcripts: `F:\CODEX\feishu-codex-bridge\conversations\`
+- Native session bindings: `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
+- Native worker run artifacts: `F:\CODEX\feishu-codex-bridge\run\`
 
 ## Local development
 
@@ -55,6 +66,8 @@ npm run service:stop
 npm run service:start
 ```
 
+This restart requirement applies directly to native session workers. If runtime code changes while the background bridge is still running, Feishu traffic may continue to use the old in-memory worker behavior even after a successful rebuild.
+
 ## Commands
 
 - Plain text: treated as `/ask`
@@ -74,6 +87,14 @@ Use the local session CLI to continue an existing Feishu conversation from the P
 - `npm run sessions:show -- <session-id>`
 - `npm run sessions:ask -- <session-id> <prompt>`
 - `npm run sessions:run -- <session-id> <prompt>`
+
+For native-session verification, also confirm the underlying Codex-native session can be resumed from the same machine. The exact command surface depends on the installed Codex client version, but operators should verify at least:
+
+- the bridge-side session binding under `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
+- the matching native session metadata under `C:\Users\yckj0094\.codex\`
+- local resume behavior with a native Codex command such as `codex resume <session-id>` if the installed CLI exposes that entry point
+
+If shared storage is working, check whether the same session is visible in Codex CLI session listings, Codex desktop session history, and the VS Code Codex extension or panel. Treat discoverability in those surfaces as machine-specific verified behavior, not as guaranteed product behavior.
 
 ## Archive Sync
 

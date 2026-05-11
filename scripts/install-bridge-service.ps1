@@ -35,7 +35,12 @@ try {
 } catch {
     $startupScript = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$($config.StartScript)`"`r`n"
     Set-Content -LiteralPath $config.StartupScriptPath -Value $startupScript -Encoding ASCII
-    Write-Warning "Scheduled Task install failed; installed Startup fallback instead at $($config.StartupScriptPath)"
+    $reason = $_.Exception.Message
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = 'unknown error'
+    }
+
+    Write-Warning "Scheduled Task install failed ($reason); installed Startup fallback instead at $($config.StartupScriptPath)"
 }
 
 Write-Output "Start it now with: powershell -ExecutionPolicy Bypass -File scripts/start-bridge.ps1"

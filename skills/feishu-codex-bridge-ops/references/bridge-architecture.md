@@ -10,12 +10,14 @@ This skill targets the Feishu Codex bridge in:
 
 - Runtime stack: Node.js + TypeScript
 - Feishu transport: long connection mode via `@larksuiteoapi/node-sdk`
-- Codex execution: local `codex exec`
-- Final reply extraction: `codex exec --output-last-message`
+- Codex execution: bridge-owned native Codex sessions keyed by Feishu `chatId`
+- Final reply extraction: final-answer-only relay from the active native session worker
 - State storage: JSON task log under `%LOCALAPPDATA%\feishu-codex-bridge\data\tasks.json` by default
 - Conversation/session storage target:
   - `%LOCALAPPDATA%\feishu-codex-bridge\data\conversations.json`
   - `%LOCALAPPDATA%\feishu-codex-bridge\conversations\`
+- Native-session binding target:
+  - `%LOCALAPPDATA%\feishu-codex-bridge\data\native-sessions.json`
 - Health surface: local HTTP endpoint on `http://127.0.0.1:<PORT>/health`
 
 ## Session-Flow Upgrade
@@ -23,9 +25,11 @@ This skill targets the Feishu Codex bridge in:
 The bridge is being upgraded from a task-centric relay into a session-centric conversation system:
 
 - Stable session key: Feishu `chatId`
-- Session identity: `sessionId`
+- Bridge session identity: `sessionId`
+- Native worker identity: Codex-native `codexSessionId`
 - Message model: append-only conversation records with direction, source, text, timestamp, and optional task linkage
 - Operator-facing mirror: Markdown transcripts readable without parsing JSON
+- Idle lifecycle: 24-hour expiry measured from the last successful session use
 
 When documenting or operating the upgraded bridge, describe the local source of truth as "session flow with linked tasks", not "tasks only".
 
@@ -56,9 +60,14 @@ When documenting or operating the upgraded bridge, describe the local source of 
   - Keeps task execution asynchronous
 - `src/runtime.ts`
   - Parses `/ask`, `/run`, `/status`, `/help`
+  - Resolves the bridge-owned native session binding for each `chatId`
   - Queues one task at a time
   - Persists task state transitions
   - Sends only the natural completion message on success
+- `src/native-session-store.ts`
+  - Persists chat-to-native-session bindings, expiry, and last-used metadata
+- `src/native-session-runner.ts`
+  - Starts or resumes Codex-native sessions and extracts the final answer for Feishu
 - `src/conversation-store.ts`
   - Persists sessions keyed by Feishu chat
   - Stores append-only message history plus task links
@@ -67,12 +76,9 @@ When documenting or operating the upgraded bridge, describe the local source of 
 - `src/session-cli.ts`
   - Supports the PC-side session continuation workflow described in the design
 - `src/codex-runner.ts`
-  - Resolves a Windows-safe Codex command
-  - Prefers `codex.cmd` on Windows
-  - Uses the installed `@openai/codex/bin/codex.js` entrypoint when available
-  - Falls back to `powershell.exe -Command` wrapping when needed
-  - Uses `stdio: ['ignore', 'pipe', 'pipe']` so stdin is not left open
-  - Captures the last assistant message to avoid relaying execution transcripts
+  - Remains the low-level Codex process helper for Windows-safe command resolution
+  - Preserves `--skip-git-repo-check` where needed for non-trusted workspace roots
+  - Must not regress final-answer extraction behavior when reused by native session workers
 - `src/formatter.ts`
   - Strips noisy Codex banner and queue lines
   - Prefers the final assistant message when available
@@ -101,6 +107,15 @@ The conversation-flow design adds these Feishu-safe session commands:
 
 For PC-side continuation, the implementation plan defines a local session CLI and package-script style entry points such as `sessions:list`, `sessions:show`, `sessions:ask`, and `sessions:run`.
 
+## Native Session Visibility Goal
+
+The native-worker design intentionally tries to share actual Codex-native session storage so local Codex clients can discover the same conversations:
+
+- Codex CLI should be able to resume the bridge-created native session when given the stored `codexSessionId`.
+- Codex desktop and VS Code may show the same session if they read the same native storage on the same machine.
+
+That cross-client visibility is an operational goal, not a design-time guarantee. Document it as "verify on this machine" unless a specific client/version combination has been proven.
+
 ## Security Model
 
 - Secrets stay in local `.env.local` or `.env`
@@ -108,11 +123,13 @@ For PC-side continuation, the implementation plan defines a local session CLI an
 - `/ask` is forced to sandbox `read-only`
 - `/run` inherits configured sandbox mode, default `workspace-write`
 - Workspace root must be an absolute path
+- Final Feishu replies remain final-answer-only even though the underlying native session may contain additional internal execution output
 
 ## Tested Behaviors Worth Preserving
 
 - Windows prefers `codex.cmd`, but when the npm-installed package layout is present the runner uses `process.execPath` plus `@openai/codex/bin/codex.js`
 - Successful replies prefer the final assistant message rather than noisy execution transcripts
+- One native-session binding is reused per Feishu `chatId` until the 24-hour idle timeout expires
 - Timeout kills the spawned process and reports a timed-out result
 - Unsupported Feishu payloads are filtered instead of producing noisy failures
 - Health checks bind to `127.0.0.1` only

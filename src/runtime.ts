@@ -2,6 +2,8 @@ import type { BridgeInboundMessage, BridgeReply } from './bridge.js';
 import { CommandParseError, getCommandHelpText, parseCommand } from './commands.js';
 import type { ConversationStore } from './conversation-store.js';
 import { writeConversationTranscript } from './conversation-export.js';
+import { isMissingNativeSessionError, type NativeSessionRunResult } from './native-session-runner.js';
+import type { NativeSessionStore } from './native-session-store.js';
 import {
   formatCompletionMessage,
   formatHistoryMessage,
@@ -16,11 +18,29 @@ import type { AppConfig, RuntimePaths } from './types.js';
 
 type TaskRuntimeConfig = Pick<
   AppConfig,
-  'codexWorkspaceRoot' | 'codexTimeoutMs' | 'codexModel' | 'codexApprovalPolicy' | 'codexSandboxMode'
+  | 'codexWorkspaceRoot'
+  | 'codexTimeoutMs'
+  | 'codexModel'
+  | 'codexApprovalPolicy'
+  | 'codexSandboxMode'
+  | 'nativeSessionIdleTimeoutMs'
 >;
 
-type TaskRuntimeRunner = {
+type OneShotRunner = {
   run(request: CodexRunRequest): Promise<CodexRunResult>;
+};
+
+type NativeTaskRuntimeRunner = {
+  run(request: {
+    mode: 'start' | 'resume';
+    prompt: string;
+    workspaceRoot: string;
+    codexSessionId?: string;
+    sandboxMode: AppConfig['codexSandboxMode'];
+    timeoutMs?: number;
+    tempDir?: string;
+    model?: string;
+  }): Promise<NativeSessionRunResult>;
 };
 
 interface QueueTaskInput {
@@ -37,8 +57,13 @@ export interface TaskRuntimeDependencies {
   config: TaskRuntimeConfig;
   store: TaskStore;
   conversationStore: ConversationStore;
-  runtimePaths: Pick<RuntimePaths, 'conversationsDir' | 'archiveSyncDir' | 'runDir'>;
-  runner: TaskRuntimeRunner;
+  nativeSessionStore: NativeSessionStore;
+  runtimePaths: Pick<
+    RuntimePaths,
+    'conversationsDir' | 'archiveSyncDir' | 'runDir' | 'nativeSessionRegistryFile'
+  >;
+  runner: OneShotRunner;
+  nativeRunner: NativeTaskRuntimeRunner;
   sendReply: (reply: BridgeReply) => Promise<void>;
   onError?: (
     error: unknown,
@@ -47,11 +72,12 @@ export interface TaskRuntimeDependencies {
 }
 
 export function createTaskRuntime(deps: TaskRuntimeDependencies) {
-  let queue = Promise.resolve();
+  const queues = new Map<string, Promise<void>>();
 
-  function schedule(operation: () => Promise<void>): Promise<void> {
+  function schedule(chatId: string, operation: () => Promise<void>): Promise<void> {
+    const queue = queues.get(chatId) ?? Promise.resolve();
     const next = queue.then(operation, operation);
-    queue = next.catch(() => undefined);
+    queues.set(chatId, next.catch(() => undefined));
     return next;
   }
 
@@ -156,7 +182,7 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
   }
 
   async function queueTask(input: QueueTaskInput): Promise<void> {
-    void schedule(async () => {
+    void schedule(input.chatId, async () => {
       const inboundSession = await deps.conversationStore.appendMessage({
         chatId: input.chatId,
         participantOpenId: input.senderOpenId,
@@ -204,16 +230,7 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
     await deps.store.update(task.id, { status: 'running' });
 
     try {
-      const result = await deps.runner.run({
-        kind: task.kind,
-        prompt: task.prompt,
-        workspaceRoot: deps.config.codexWorkspaceRoot,
-        tempDir: deps.runtimePaths.runDir,
-        timeoutMs: deps.config.codexTimeoutMs,
-        model: deps.config.codexModel,
-        approvalPolicy: deps.config.codexApprovalPolicy,
-        sandboxMode: deps.config.codexSandboxMode,
-      });
+      const result = await runViaNativeSession(task);
 
       const status: TaskStatus = result.exitCode === 0 && !result.timedOut ? 'completed' : 'failed';
       const summary = summarizeCodexResult({
@@ -288,11 +305,64 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
     });
   }
 
+  async function runViaNativeSession(task: TaskRecord): Promise<NativeSessionRunResult> {
+    const sandboxMode = task.kind === 'ask' ? 'read-only' : deps.config.codexSandboxMode;
+    const binding = await deps.nativeSessionStore.getByChatId(task.chatId, task.kind);
+    const now = new Date().toISOString();
+
+    if (binding && binding.expiresAt > now) {
+      const resumed = await deps.nativeRunner.run({
+        mode: 'resume',
+        codexSessionId: binding.codexSessionId,
+        prompt: task.prompt,
+        workspaceRoot: binding.workspaceRoot,
+        sandboxMode,
+        timeoutMs: deps.config.codexTimeoutMs,
+        tempDir: deps.runtimePaths.runDir,
+        model: deps.config.codexModel,
+      });
+
+      if (resumed.exitCode === 0 && !resumed.timedOut) {
+        await deps.nativeSessionStore.touch(task.chatId, task.kind);
+        return resumed;
+      }
+
+      if (!isMissingNativeSessionError(resumed.stderr)) {
+        return resumed;
+      }
+
+      await deps.nativeSessionStore.delete(task.chatId, task.kind);
+    } else if (binding) {
+      await deps.nativeSessionStore.delete(task.chatId, task.kind);
+    }
+
+    const started = await deps.nativeRunner.run({
+      mode: 'start',
+      prompt: task.prompt,
+      workspaceRoot: deps.config.codexWorkspaceRoot,
+      sandboxMode,
+      timeoutMs: deps.config.codexTimeoutMs,
+      tempDir: deps.runtimePaths.runDir,
+      model: deps.config.codexModel,
+    });
+
+    if (started.sessionId && started.exitCode === 0 && !started.timedOut) {
+      await deps.nativeSessionStore.upsert({
+        chatId: task.chatId,
+        codexSessionId: started.sessionId,
+        workerKind: task.kind,
+        workspaceRoot: deps.config.codexWorkspaceRoot,
+      });
+    }
+
+    return started;
+  }
+
   return {
     handleInboundMessage,
     continueSession,
     async idle() {
-      await queue;
+      await Promise.all([...queues.values()]);
     },
   };
 }

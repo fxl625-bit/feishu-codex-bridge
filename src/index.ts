@@ -10,6 +10,8 @@ import { loadConfig, resolveRuntimePaths } from './config.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { createCodexRunner } from './codex-runner.js';
 import { createFeishuService, type FeishuServiceDependencies } from './feishu.js';
+import { createNativeSessionRunner } from './native-session-runner.js';
+import { createNativeSessionStore, type NativeSessionStore } from './native-session-store.js';
 import { createTaskRuntime } from './runtime.js';
 import { createTaskStore, type TaskStore } from './task-store.js';
 import type { AppConfig, AppMetadata, RuntimePaths, RuntimeSummaryInput } from './types.js';
@@ -84,8 +86,10 @@ export interface BridgeApplicationDependencies {
   transport: FeishuServiceDependencies['transport'];
   store: TaskStore;
   conversationStore: ConversationStore;
+  nativeSessionStore: NativeSessionStore;
   runtimePaths: RuntimePaths;
   runner?: ReturnType<typeof createCodexRunner>;
+  nativeRunner?: ReturnType<typeof createNativeSessionRunner>;
   onError?: (error: unknown) => void;
 }
 
@@ -99,12 +103,15 @@ export function createBridgeApplication(deps: BridgeApplicationDependencies) {
   };
 
   const runner = deps.runner ?? createCodexRunner();
+  const nativeRunner = deps.nativeRunner ?? createNativeSessionRunner();
   const taskRuntime = createTaskRuntime({
     config: deps.config,
     store: deps.store,
     conversationStore: deps.conversationStore,
+    nativeSessionStore: deps.nativeSessionStore,
     runtimePaths: deps.runtimePaths,
     runner,
+    nativeRunner,
     sendReply,
     onError(error) {
       deps.onError?.(error);
@@ -253,6 +260,10 @@ export async function startApplication(env: Record<string, string | undefined> =
     transport,
     store,
     conversationStore,
+    nativeSessionStore: createNativeSessionStore({
+      dataFile: runtimePaths.nativeSessionRegistryFile,
+      idleTimeoutMs: config.nativeSessionIdleTimeoutMs,
+    }),
     runtimePaths,
     onError(error) {
       console.error('[bridge]', error);

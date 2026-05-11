@@ -55,6 +55,7 @@ export interface AppConfig {
   codexApprovalPolicy: CodexApprovalPolicy;
   codexSandboxMode: CodexSandboxMode;
   codexTimeoutMs: number;
+  nativeSessionIdleTimeoutMs: number;
   port: number;
 }
 
@@ -71,11 +72,31 @@ export interface RuntimePaths {
   tasksFile: string;
   conversationsFile: string;
   conversationsDir: string;
+  nativeSessionRegistryFile: string;
   stdoutLogFile: string;
   stderrLogFile: string;
   pidFile: string;
   healthUrl: string;
   archiveSyncDir?: string;
+}
+
+export type NativeSessionWorkerKind = 'ask' | 'run';
+
+export interface NativeSessionBinding {
+  chatId: string;
+  codexSessionId: string;
+  workerKind: NativeSessionWorkerKind;
+  workspaceRoot: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+}
+
+export interface NativeSessionBindingInput {
+  chatId: string;
+  codexSessionId: string;
+  workerKind: NativeSessionWorkerKind;
+  workspaceRoot: string;
 }
 
 export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';

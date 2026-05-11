@@ -3,28 +3,28 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { CodexApprovalPolicy, CodexSandboxMode } from './types.js';
+import type { CodexSandboxMode } from './types.js';
 
-export type CodexJobKind = 'ask' | 'run';
-
-export interface CodexRunRequest {
-  kind: CodexJobKind;
+export interface NativeSessionRunRequest {
+  mode: 'start' | 'resume';
   prompt: string;
   workspaceRoot: string;
-  tempDir?: string;
+  codexSessionId?: string;
+  sandboxMode: CodexSandboxMode;
   timeoutMs?: number;
+  tempDir?: string;
   model?: string;
-  approvalPolicy?: CodexApprovalPolicy;
-  sandboxMode?: CodexSandboxMode;
 }
 
-export interface CodexRunResult {
+export interface NativeSessionRunResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
   signal?: NodeJS.Signals | null;
   lastMessage?: string;
+  sessionId?: string;
+  finalMessage?: string;
 }
 
 interface SpawnedProcess {
@@ -49,28 +49,33 @@ type SpawnLike = (
   },
 ) => SpawnedProcess;
 
-export interface CodexRunnerOptions {
+export interface NativeSessionRunnerOptions {
   spawn?: SpawnLike;
   command?: string;
 }
 
-export function createCodexRunner(options: CodexRunnerOptions = {}) {
+export function createNativeSessionRunner(options: NativeSessionRunnerOptions = {}) {
   const spawn = options.spawn ?? nodeSpawn;
   const command = options.command ?? resolveCodexCommand();
 
   return {
-    async run(job: CodexRunRequest): Promise<CodexRunResult> {
+    async run(request: NativeSessionRunRequest): Promise<NativeSessionRunResult> {
       const outputCaptureDir = await mkdtemp(
-        path.join(job.tempDir ?? os.tmpdir(), 'codex-last-message-'),
+        path.join(request.tempDir ?? os.tmpdir(), 'codex-native-session-'),
       );
       const outputLastMessageFile = path.join(outputCaptureDir, 'last-message.txt');
 
       try {
-        return await new Promise<CodexRunResult>((resolve, reject) => {
-          const invocation = buildInvocation(command, job, process.platform, outputLastMessageFile);
+        return await new Promise<NativeSessionRunResult>((resolve, reject) => {
+          const invocation = buildNativeInvocation(
+            command,
+            request,
+            process.platform,
+            outputLastMessageFile,
+          );
           const child = spawn(invocation.command, invocation.args, {
-            cwd: job.workspaceRoot,
-            env: buildChildEnv(job),
+            cwd: request.workspaceRoot,
+            env: buildChildEnv(request.tempDir),
             stdio: ['ignore', 'pipe', 'pipe'],
           });
           const stdoutChunks: Buffer[] = [];
@@ -86,12 +91,12 @@ export function createCodexRunner(options: CodexRunnerOptions = {}) {
           });
 
           const timeout =
-            job.timeoutMs === undefined
+            request.timeoutMs === undefined
               ? undefined
               : setTimeout(() => {
                   timedOut = true;
                   child.kill('SIGTERM');
-                }, job.timeoutMs);
+                }, request.timeoutMs);
 
           child.once('error', (error) => {
             clearTimer(timeout);
@@ -110,13 +115,21 @@ export function createCodexRunner(options: CodexRunnerOptions = {}) {
             settled = true;
 
             try {
+              const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+              const lastMessage = await readOutputLastMessage(outputLastMessageFile);
+              const sessionId =
+                parseThreadIdFromJsonLines(stdout) ??
+                (request.mode === 'resume' ? request.codexSessionId : undefined);
+
               resolve({
                 exitCode: code,
-                stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+                stdout,
                 stderr: Buffer.concat(stderrChunks).toString('utf8'),
                 timedOut,
                 signal,
-                lastMessage: await readOutputLastMessage(outputLastMessageFile),
+                lastMessage,
+                finalMessage: lastMessage,
+                sessionId,
               });
             } catch (error) {
               reject(error);
@@ -130,7 +143,15 @@ export function createCodexRunner(options: CodexRunnerOptions = {}) {
   };
 }
 
-export function resolveCodexCommand(platform = process.platform, env = process.env): string {
+export function isMissingNativeSessionError(stderr: string): boolean {
+  const normalized = stderr.toLowerCase();
+  return (
+    normalized.includes('thread/resume failed') && normalized.includes('no rollout found') ||
+    normalized.includes('no rollout found for thread id')
+  );
+}
+
+function resolveCodexCommand(platform = process.platform, env = process.env): string {
   if (platform !== 'win32') {
     return 'codex';
   }
@@ -151,13 +172,13 @@ export function resolveCodexCommand(platform = process.platform, env = process.e
   return 'codex.cmd';
 }
 
-export function buildInvocation(
+function buildNativeInvocation(
   command: string,
-  job: CodexRunRequest,
+  request: NativeSessionRunRequest,
   platform = process.platform,
   outputLastMessageFile?: string,
 ): { command: string; args: string[] } {
-  const args = buildArgs(job, outputLastMessageFile);
+  const args = buildNativeArgs(request, outputLastMessageFile);
 
   if (platform !== 'win32') {
     return {
@@ -189,44 +210,61 @@ function resolveCodexEntryPoint(command: string): string | undefined {
     return undefined;
   }
 
-  const entryPoint = path.join(path.dirname(command), 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+  const entryPoint = path.join(
+    path.dirname(command),
+    'node_modules',
+    '@openai',
+    'codex',
+    'bin',
+    'codex.js',
+  );
   return existsSync(entryPoint) ? entryPoint : undefined;
 }
 
-function buildArgs(job: CodexRunRequest, outputLastMessageFile?: string): string[] {
-  const args: string[] = [];
+function buildNativeArgs(
+  request: NativeSessionRunRequest,
+  outputLastMessageFile?: string,
+): string[] {
+  const args: string[] = ['exec'];
 
-  if (job.model) {
-    args.push('-m', job.model);
+  if (request.model) {
+    args.push('-m', request.model);
   }
 
-  args.push('exec', '-s', sandboxModeFor(job));
-  args.push('--skip-git-repo-check');
+  args.push('-s', request.sandboxMode);
+
+  if (request.mode === 'resume') {
+    if (!request.codexSessionId) {
+      throw new Error('codexSessionId is required when mode is resume');
+    }
+
+    args.push('resume', '--skip-git-repo-check', '--json');
+
+    if (outputLastMessageFile) {
+      args.push('--output-last-message', outputLastMessageFile);
+    }
+
+    args.push(request.codexSessionId, request.prompt);
+    return args;
+  }
+
+  args.push('--skip-git-repo-check', '--json');
 
   if (outputLastMessageFile) {
     args.push('--output-last-message', outputLastMessageFile);
   }
 
-  args.push(job.prompt);
-
+  args.push(request.prompt);
   return args;
 }
 
-function sandboxModeFor(job: CodexRunRequest): CodexSandboxMode {
-  if (job.kind === 'ask') {
-    return 'read-only';
-  }
-
-  return job.sandboxMode ?? 'workspace-write';
-}
-
-function buildChildEnv(job: CodexRunRequest): NodeJS.ProcessEnv {
+function buildChildEnv(tempDir: string | undefined): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
 
-  if (job.tempDir) {
-    env.TEMP = job.tempDir;
-    env.TMP = job.tempDir;
-    env.TMPDIR = job.tempDir;
+  if (tempDir) {
+    env.TEMP = tempDir;
+    env.TMP = tempDir;
+    env.TMPDIR = tempDir;
   }
 
   return env;
@@ -246,4 +284,24 @@ async function readOutputLastMessage(filePath: string): Promise<string | undefin
   } catch {
     return undefined;
   }
+}
+
+function parseThreadIdFromJsonLines(stdout: string): string | undefined {
+  for (const line of stdout.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as { type?: string; thread_id?: string };
+      if (parsed.type === 'thread.started' && typeof parsed.thread_id === 'string') {
+        return parsed.thread_id;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
 }

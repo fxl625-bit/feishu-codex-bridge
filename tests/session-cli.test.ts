@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createConversationStore } from '../src/conversation-store.js';
+import { createNativeSessionStore } from '../src/native-session-store.js';
 import { createTaskRuntime } from '../src/runtime.js';
 import { runSessionCli } from '../src/session-cli.js';
 import { createTaskStore } from '../src/task-store.js';
@@ -33,6 +34,10 @@ function createCliHarness(directory: string) {
   const conversationStore = createConversationStore({
     dataFile: path.join(directory, 'conversations.json'),
   });
+  const nativeSessionStore = createNativeSessionStore({
+    dataFile: path.join(directory, 'native-sessions.json'),
+    idleTimeoutMs: 24 * 60 * 60 * 1000,
+  });
   const runtime = createTaskRuntime({
     config: {
       codexWorkspaceRoot: 'C:/workspace',
@@ -40,13 +45,16 @@ function createCliHarness(directory: string) {
       codexModel: 'gpt-5.5',
       codexApprovalPolicy: 'never',
       codexSandboxMode: 'workspace-write',
+      nativeSessionIdleTimeoutMs: 24 * 60 * 60 * 1000,
     },
     store,
     conversationStore,
+    nativeSessionStore,
     runtimePaths: {
       conversationsDir: path.join(directory, 'conversations'),
       archiveSyncDir: path.join(directory, 'archive'),
       runDir: path.join(directory, 'run'),
+      nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
     },
     runner: {
       run: vi.fn(async () => ({
@@ -54,6 +62,16 @@ function createCliHarness(directory: string) {
         stdout: 'Bridge continued.',
         stderr: '',
         timedOut: false,
+      })),
+    },
+    nativeRunner: {
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        sessionId: 'sess_1',
+        lastMessage: 'Bridge continued.',
       })),
     },
     sendReply: async (reply) => {

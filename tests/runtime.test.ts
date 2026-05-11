@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createConversationStore } from '../src/conversation-store.js';
+import { createNativeSessionStore } from '../src/native-session-store.js';
 import type { BridgeInboundMessage } from '../src/bridge.js';
 import { createTaskRuntime } from '../src/runtime.js';
 import { createTaskStore } from '../src/task-store.js';
@@ -36,147 +37,228 @@ function createInboundMessage(overrides: Partial<BridgeInboundMessage> = {}): Br
   };
 }
 
-describe('task runtime', () => {
-  it('runs ask tasks and replies only with the natural completion message', async () => {
-    const replies: string[] = [];
-    const directory = await createTempDirectory();
-    const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
-    const conversationStore = createConversationStore({
-      dataFile: path.join(directory, 'conversations.json'),
-    });
-    const runner = {
+function createRuntimeHarness(directory: string, overrides?: {
+  nativeRunner?: { run: ReturnType<typeof vi.fn> };
+}) {
+  const replies: string[] = [];
+  const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
+  const conversationStore = createConversationStore({
+    dataFile: path.join(directory, 'conversations.json'),
+  });
+  const nativeSessionStore = createNativeSessionStore({
+    dataFile: path.join(directory, 'native-sessions.json'),
+    idleTimeoutMs: 24 * 60 * 60 * 1000,
+  });
+
+  const runtime = createTaskRuntime({
+    config: {
+      codexWorkspaceRoot: 'C:/workspace',
+      codexTimeoutMs: 60000,
+      codexModel: 'gpt-5.5',
+      codexApprovalPolicy: 'never',
+      codexSandboxMode: 'workspace-write',
+      nativeSessionIdleTimeoutMs: 24 * 60 * 60 * 1000,
+    },
+    store,
+    conversationStore,
+    nativeSessionStore,
+    runtimePaths: {
+      conversationsDir: path.join(directory, 'conversations'),
+      archiveSyncDir: path.join(directory, 'archive'),
+      runDir: path.join(directory, 'run'),
+      nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
+    },
+    runner: {
+      run: vi.fn(),
+    },
+    nativeRunner: overrides?.nativeRunner ?? {
       run: vi.fn(async () => ({
         exitCode: 0,
-        stdout: 'analysis complete',
+        stdout: '',
         stderr: '',
         timedOut: false,
+        sessionId: 'sess_1',
+        lastMessage: 'analysis complete',
       })),
-    };
+    },
+    sendReply: async (reply) => {
+      replies.push(reply.text);
+    },
+  });
 
-    const runtime = createTaskRuntime({
-      config: {
-        codexWorkspaceRoot: 'C:/workspace',
-        codexTimeoutMs: 60000,
-        codexModel: 'gpt-5.5',
-        codexApprovalPolicy: 'never',
-        codexSandboxMode: 'workspace-write',
-      },
-      store,
-      conversationStore,
-      runtimePaths: {
-        conversationsDir: path.join(directory, 'conversations'),
-        archiveSyncDir: path.join(directory, 'archive'),
-        runDir: path.join(directory, 'run'),
-      },
-      runner,
-      sendReply: async (reply) => {
-        replies.push(reply.text);
-      },
+  return {
+    replies,
+    store,
+    conversationStore,
+    nativeSessionStore,
+    runtime,
+  };
+}
+
+describe('task runtime', () => {
+  it('runs ask tasks and replies only with the natural completion message', async () => {
+    const directory = await createTempDirectory();
+    const harness = createRuntimeHarness(directory);
+
+    await harness.runtime.handleInboundMessage(createInboundMessage());
+    await harness.runtime.idle();
+
+    expect(harness.replies).toEqual(['analysis complete']);
+    await expect(harness.nativeSessionStore.getByChatId('oc_1', 'ask')).resolves.toMatchObject({
+      codexSessionId: 'sess_1',
     });
-
-    await runtime.handleInboundMessage(createInboundMessage());
-    await runtime.idle();
-
-    expect(runner.run).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'ask',
-        prompt: 'inspect repo',
-        workspaceRoot: 'C:/workspace',
-        timeoutMs: 60000,
-      }),
-    );
-    expect(replies).toEqual(['analysis complete']);
     await expect(
       readFile(path.join(directory, 'conversations', 'session_oc_1.md'), 'utf8'),
     ).resolves.toContain('analysis complete');
   });
 
-  it('replies to plain text chat like natural conversation on success', async () => {
-    const replies: string[] = [];
+  it('reuses the same native session for repeated asks from one chat', async () => {
     const directory = await createTempDirectory();
-    const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
-    const conversationStore = createConversationStore({
-      dataFile: path.join(directory, 'conversations.json'),
-    });
-    const runner = {
-      run: vi.fn(async () => ({
-        exitCode: 0,
-        stdout: 'Here is the answer you asked for.',
-        stderr: '',
-        timedOut: false,
-      })),
+    const nativeRunner = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'first',
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'second',
+        }),
     };
+    const harness = createRuntimeHarness(directory, { nativeRunner });
 
-    const runtime = createTaskRuntime({
-      config: {
-        codexWorkspaceRoot: 'C:/workspace',
-        codexTimeoutMs: 60000,
-        codexModel: 'gpt-5.5',
-        codexApprovalPolicy: 'never',
-        codexSandboxMode: 'workspace-write',
-      },
-      store,
-      conversationStore,
-      runtimePaths: {
-        conversationsDir: path.join(directory, 'conversations'),
-        archiveSyncDir: path.join(directory, 'archive'),
-        runDir: path.join(directory, 'run'),
-      },
-      runner,
-      sendReply: async (reply) => {
-        replies.push(reply.text);
+    await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
+    await harness.runtime.handleInboundMessage(
+      createInboundMessage({ messageId: 'om_2', text: '/ask second' }),
+    );
+    await harness.runtime.idle();
+
+    expect(harness.replies).toEqual(['first', 'second']);
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        mode: 'start',
+        prompt: 'first',
+      }),
+    );
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        mode: 'resume',
+        codexSessionId: 'sess_1',
+        prompt: 'second',
+      }),
+    );
+  });
+
+  it('recreates a binding if native resume fails because the session no longer exists', async () => {
+    const directory = await createTempDirectory();
+    const nativeRunner = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'first',
+        })
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'Error: thread/resume: thread/resume failed: no rollout found for thread id sess_1',
+          timedOut: false,
+          sessionId: 'sess_1',
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_2',
+          lastMessage: 'recovered',
+        }),
+    };
+    const harness = createRuntimeHarness(directory, { nativeRunner });
+
+    await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
+    await harness.runtime.handleInboundMessage(
+      createInboundMessage({ messageId: 'om_2', text: '/ask second' }),
+    );
+    await harness.runtime.idle();
+
+    expect(harness.replies).toEqual(['first', 'recovered']);
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        mode: 'resume',
+        codexSessionId: 'sess_1',
+      }),
+    );
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        mode: 'start',
+        prompt: 'second',
+      }),
+    );
+    await expect(harness.nativeSessionStore.getByChatId('oc_1', 'ask')).resolves.toMatchObject({
+      codexSessionId: 'sess_2',
+    });
+  });
+
+  it('replies to plain text chat like natural conversation on success', async () => {
+    const directory = await createTempDirectory();
+    const harness = createRuntimeHarness(directory, {
+      nativeRunner: {
+        run: vi.fn(async () => ({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'Here is the answer you asked for.',
+        })),
       },
     });
 
-    await runtime.handleInboundMessage(createInboundMessage({ text: 'What changed in this repo?' }));
-    await runtime.idle();
+    await harness.runtime.handleInboundMessage(
+      createInboundMessage({ text: 'What changed in this repo?' }),
+    );
+    await harness.runtime.idle();
 
-    expect(replies).toEqual(['Here is the answer you asked for.']);
+    expect(harness.replies).toEqual(['Here is the answer you asked for.']);
   });
 
   it('keeps failed task replies concise and status-oriented', async () => {
-    const replies: string[] = [];
     const directory = await createTempDirectory();
-    const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
-    const conversationStore = createConversationStore({
-      dataFile: path.join(directory, 'conversations.json'),
-    });
-    const runner = {
-      run: vi.fn(async () => ({
-        exitCode: 1,
-        stdout: '',
-        stderr: 'fatal: unable to inspect repository',
-        timedOut: false,
-      })),
-    };
-
-    const runtime = createTaskRuntime({
-      config: {
-        codexWorkspaceRoot: 'C:/workspace',
-        codexTimeoutMs: 60000,
-        codexModel: 'gpt-5.5',
-        codexApprovalPolicy: 'never',
-        codexSandboxMode: 'workspace-write',
-      },
-      store,
-      conversationStore,
-      runtimePaths: {
-        conversationsDir: path.join(directory, 'conversations'),
-        archiveSyncDir: path.join(directory, 'archive'),
-        runDir: path.join(directory, 'run'),
-      },
-      runner,
-      sendReply: async (reply) => {
-        replies.push(reply.text);
+    const harness = createRuntimeHarness(directory, {
+      nativeRunner: {
+        run: vi.fn(async () => ({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'fatal: unable to inspect repository',
+          timedOut: false,
+        })),
       },
     });
 
-    await runtime.handleInboundMessage(createInboundMessage());
-    await runtime.idle();
+    await harness.runtime.handleInboundMessage(createInboundMessage());
+    await harness.runtime.idle();
 
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain('failed');
-    expect(replies[0]).toContain('fatal: unable to inspect repository');
+    expect(harness.replies).toHaveLength(1);
+    expect(harness.replies[0]).toContain('failed');
+    expect(harness.replies[0]).toContain('fatal: unable to inspect repository');
   });
 
   it('returns the latest task status when /status is requested', async () => {
@@ -185,6 +267,10 @@ describe('task runtime', () => {
     const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
     const conversationStore = createConversationStore({
       dataFile: path.join(directory, 'conversations.json'),
+    });
+    const nativeSessionStore = createNativeSessionStore({
+      dataFile: path.join(directory, 'native-sessions.json'),
+      idleTimeoutMs: 24 * 60 * 60 * 1000,
     });
     const task = await store.create({
       chatId: 'oc_1',
@@ -202,18 +288,24 @@ describe('task runtime', () => {
       config: {
         codexWorkspaceRoot: 'C:/workspace',
         codexTimeoutMs: 60000,
-        codexModel: undefined,
+        codexModel: 'gpt-5.5',
         codexApprovalPolicy: 'never',
         codexSandboxMode: 'workspace-write',
+        nativeSessionIdleTimeoutMs: 24 * 60 * 60 * 1000,
       },
       store,
       conversationStore,
+      nativeSessionStore,
       runtimePaths: {
         conversationsDir: path.join(directory, 'conversations'),
         archiveSyncDir: path.join(directory, 'archive'),
         runDir: path.join(directory, 'run'),
+        nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
       },
       runner: {
+        run: vi.fn(),
+      },
+      nativeRunner: {
         run: vi.fn(),
       },
       sendReply: async (reply) => {
@@ -233,6 +325,10 @@ describe('task runtime', () => {
     const conversationStore = createConversationStore({
       dataFile: path.join(directory, 'conversations.json'),
     });
+    const nativeSessionStore = createNativeSessionStore({
+      dataFile: path.join(directory, 'native-sessions.json'),
+      idleTimeoutMs: 24 * 60 * 60 * 1000,
+    });
     await conversationStore.appendMessage({
       chatId: 'oc_1',
       participantOpenId: 'ou_1',
@@ -251,18 +347,24 @@ describe('task runtime', () => {
       config: {
         codexWorkspaceRoot: 'C:/workspace',
         codexTimeoutMs: 60000,
-        codexModel: undefined,
+        codexModel: 'gpt-5.5',
         codexApprovalPolicy: 'never',
         codexSandboxMode: 'workspace-write',
+        nativeSessionIdleTimeoutMs: 24 * 60 * 60 * 1000,
       },
       store,
       conversationStore,
+      nativeSessionStore,
       runtimePaths: {
         conversationsDir: path.join(directory, 'conversations'),
         archiveSyncDir: path.join(directory, 'archive'),
         runDir: path.join(directory, 'run'),
+        nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
       },
       runner: {
+        run: vi.fn(),
+      },
+      nativeRunner: {
         run: vi.fn(),
       },
       sendReply: async (reply) => {

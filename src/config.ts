@@ -5,6 +5,7 @@ import type { AppConfig, RuntimePaths } from './types.js';
 const DEFAULT_APPROVAL_POLICY = 'never';
 const DEFAULT_SANDBOX_MODE = 'workspace-write';
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_NATIVE_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PORT = 8787;
 const DEFAULT_SERVICE_DIR_NAME = 'feishu-codex-bridge';
 const DEFAULT_ARCHIVE_SYNC_DIR = path.join(
@@ -32,6 +33,11 @@ const envSchema = z.object({
   CODEX_APPROVAL_POLICY: approvalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
   CODEX_SANDBOX_MODE: sandboxModeSchema.default(DEFAULT_SANDBOX_MODE),
   CODEX_TIMEOUT_MS: z.coerce.number().int().positive().default(DEFAULT_TIMEOUT_MS),
+  NATIVE_SESSION_IDLE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_NATIVE_SESSION_IDLE_TIMEOUT_MS),
   PORT: z.coerce.number().int().positive().default(DEFAULT_PORT),
 });
 
@@ -124,6 +130,11 @@ export function resolveRuntimePaths(options: ResolveRuntimePathsOptions): Runtim
     'BRIDGE_ARCHIVE_SYNC_DIR',
     DEFAULT_ARCHIVE_SYNC_DIR,
   );
+  const nativeSessionRegistryFile = resolveAbsoluteDirectory(
+    options.env,
+    'BRIDGE_NATIVE_SESSION_REGISTRY_FILE',
+    path.join(dataDir, 'native-sessions.json'),
+  );
 
   return {
     serviceBaseDir,
@@ -133,6 +144,7 @@ export function resolveRuntimePaths(options: ResolveRuntimePathsOptions): Runtim
     tasksFile: path.join(dataDir, 'tasks.json'),
     conversationsFile: path.join(dataDir, 'conversations.json'),
     conversationsDir,
+    nativeSessionRegistryFile,
     stdoutLogFile: path.join(logDir, 'bridge.stdout.log'),
     stderrLogFile: path.join(logDir, 'bridge.stderr.log'),
     pidFile: path.join(runDir, 'bridge.pid'),
@@ -160,6 +172,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     codexApprovalPolicy: values.CODEX_APPROVAL_POLICY,
     codexSandboxMode: values.CODEX_SANDBOX_MODE,
     codexTimeoutMs: values.CODEX_TIMEOUT_MS,
+    nativeSessionIdleTimeoutMs: values.NATIVE_SESSION_IDLE_TIMEOUT_MS,
     port: values.PORT,
   };
 }

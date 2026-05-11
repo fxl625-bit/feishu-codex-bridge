@@ -29,6 +29,7 @@ describe('loadConfig', () => {
     expect(config.codexApprovalPolicy).toBe('never');
     expect(config.codexSandboxMode).toBe('workspace-write');
     expect(config.codexTimeoutMs).toBe(900000);
+    expect(config.nativeSessionIdleTimeoutMs).toBe(24 * 60 * 60 * 1000);
     expect(config.port).toBe(8787);
   });
 
@@ -112,6 +113,14 @@ describe('loadConfig', () => {
     expect(runtimePaths.conversationsDir).toBe(
       path.join('C:/Users/example/AppData/Local', 'feishu-codex-bridge', 'conversations'),
     );
+    expect(runtimePaths.nativeSessionRegistryFile).toBe(
+      path.join(
+        'C:/Users/example/AppData/Local',
+        'feishu-codex-bridge',
+        'data',
+        'native-sessions.json',
+      ),
+    );
     expect(runtimePaths.stdoutLogFile).toBe(
       path.join(
         'C:/Users/example/AppData/Local',
@@ -136,6 +145,7 @@ describe('loadConfig', () => {
         BRIDGE_DATA_DIR: 'D:/Bridge/state',
         BRIDGE_LOG_DIR: 'D:/Bridge/logs',
         BRIDGE_RUN_DIR: 'D:/Bridge/run',
+        BRIDGE_NATIVE_SESSION_REGISTRY_FILE: 'D:/Bridge/state/native-worker-registry.json',
         BRIDGE_ARCHIVE_SYNC_DIR: 'D:/Archive/bridge',
       },
       localAppData: 'C:/Users/example/AppData/Local',
@@ -146,6 +156,9 @@ describe('loadConfig', () => {
     expect(runtimePaths.tasksFile).toBe(path.join('D:/Bridge', 'state', 'tasks.json'));
     expect(runtimePaths.conversationsFile).toBe(path.join('D:/Bridge', 'state', 'conversations.json'));
     expect(runtimePaths.conversationsDir).toBe(path.join('D:/Bridge', 'conversations'));
+    expect(runtimePaths.nativeSessionRegistryFile).toBe(
+      'D:/Bridge/state/native-worker-registry.json',
+    );
     expect(runtimePaths.stderrLogFile).toBe(path.join('D:/Bridge', 'logs', 'bridge.stderr.log'));
     expect(runtimePaths.pidFile).toBe(path.join('D:/Bridge', 'run', 'bridge.pid'));
     expect(runtimePaths.archiveSyncDir).toBe('D:/Archive/bridge');

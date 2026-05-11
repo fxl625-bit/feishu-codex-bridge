@@ -29,7 +29,6 @@ describe('codex runner', () => {
         kind: 'ask',
         prompt: 'inspect repo',
         workspaceRoot: 'C:/workspace',
-        approvalPolicy: 'never',
       },
       'win32',
     );
@@ -82,7 +81,6 @@ describe('codex runner', () => {
       kind: 'ask',
       prompt: 'inspect repo',
       workspaceRoot: 'C:/workspace',
-      approvalPolicy: 'never',
       model: 'gpt-5.5',
     });
 

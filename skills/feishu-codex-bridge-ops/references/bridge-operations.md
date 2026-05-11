@@ -36,16 +36,50 @@
 
 The upgraded operating model is session-first:
 
-1. Each Feishu `chatId` maps to a stable local session
+1. Each Feishu `chatId` maps to a stable local session and a bridge-owned native Codex session binding
 2. Inbound and outbound messages append to the same session record
 3. Task execution remains linked to that session rather than replacing it
-4. Operators can inspect the session as JSON or Markdown from the PC
-5. PC-originated follow-up work should continue the same session and optionally reply back to the same Feishu chat
+4. The native binding should be reused until it has been idle for 24 hours
+5. After 24 hours of inactivity, the next message should create a fresh native session instead of resuming the expired one
+6. Feishu still receives only the final answer, not worker banners or intermediate output
+7. Operators can inspect the session as JSON or Markdown from the PC
+8. PC-originated follow-up work should continue the same session and optionally reply back to the same Feishu chat
 
 Local session mirrors are intended to live at:
 
 - `%LOCALAPPDATA%\feishu-codex-bridge\data\conversations.json`
 - `%LOCALAPPDATA%\feishu-codex-bridge\conversations\`
+
+Native binding metadata should live at:
+
+- `%LOCALAPPDATA%\feishu-codex-bridge\data\native-sessions.json`
+
+On this PC, the preferred equivalents are under `F:\CODEX\feishu-codex-bridge\`.
+
+## Native Session Verification
+
+When verifying the native-worker upgrade, check all of these separately:
+
+1. Bridge binding:
+   - confirm the expected `chatId` to `codexSessionId` mapping in `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
+2. Idle-expiry behavior:
+   - confirm the binding carries `lastUsedAt`
+   - treat 24-hour idle expiry as authoritative from the bridge side, not from guesswork about Codex internals
+3. Native resume behavior:
+   - use the installed Codex CLI to resume the session id directly if the client version exposes `codex resume`
+   - if native resume fails because the session no longer exists, the bridge should recreate the binding on the next message
+4. Final-answer-only relay:
+   - verify Feishu receives the final assistant answer without queue acknowledgements, transcript fragments, or token-summary noise
+5. Cross-client visibility:
+   - inspect `C:\Users\yckj0094\.codex\sessions`
+   - inspect `C:\Users\yckj0094\.codex\session_index.jsonl`
+   - check Codex CLI session surfaces
+   - check Codex desktop history
+   - check the VS Code Codex extension or panel if installed
+
+Treat the last visibility step as a product-behavior check, not as an assumption. A bridge-created native session is only "shared" once the actual clients on that machine prove they can see or resume it.
+
+Current verified caveat on this PC: non-interactive `codex exec` sessions do produce resumable `thread_id` values and session JSONL files under `.codex\\sessions`, but they may not immediately appear in `session_index.jsonl`. That means CLI `exec resume` can still work while desktop or VS Code history surfaces may remain incomplete until those clients index the same data.
 
 ## Windows Pitfalls
 
@@ -72,6 +106,7 @@ Local session mirrors are intended to live at:
 - `/run` is the only path that should use the configured writable sandbox mode.
 - Prefer `--output-last-message` so Feishu sees the final natural answer, not the execution transcript.
 - For workspace roots that are not trusted git directories, the runner must pass `--skip-git-repo-check` or Codex can fail before the prompt runs.
+- On this PC's installed Codex CLI, `codex exec` no longer accepts the short `-a` approval flag. The bridge runner must use the current supported argument shape or execution can fail before the prompt runs.
 - Noise filtering still matters because stderr may contain banners, queue text, and token summaries.
 - Timeout and non-zero exits should be summarized, not dumped raw into chat.
 
@@ -88,7 +123,9 @@ Local session mirrors are intended to live at:
   - after changing runtime code, run `npm run build`
   - then force a bridge restart with `npm run service:stop` and `npm run service:start`
   - then verify with `npm run service:status`, `/health`, and one real task-path smoke test
+- For native-session changes, also verify one repeated-message smoke test against the same Feishu chat so you can confirm resume behavior rather than only fresh-start behavior.
 - Do not treat a successful local CLI test alone as proof that the Feishu-facing service is upgraded. Always verify against the live background bridge process.
+- Verified on this PC on 2026-05-11: `service:install` could not register the Scheduled Task and fell back to the Startup script. Treat that fallback as the active always-on mechanism unless a later install explicitly reports task creation success.
 
 ## Service Operations
 
@@ -133,8 +170,14 @@ The implementation plan names script-style entry points `sessions:list`, `sessio
 
 - `npm test -- --run`
 - `npm run build`
+- `npm run service:install`
+- `npm run service:stop`
+- `npm run service:start`
 - `npm run service:status`
 - `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health | Select-Object -ExpandProperty Content`
+- `Get-Content F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
+- `Get-ChildItem C:\Users\yckj0094\.codex\sessions`
+- `Get-Content C:\Users\yckj0094\.codex\session_index.jsonl -Tail 20`
 
 ## Canonical Archive Location
 
@@ -147,3 +190,11 @@ Keep bridge operational history and handoff notes there instead of scattering du
 - Obsidian sync is best-effort only.
 - If `F:` is missing, locked, or offline, the bridge should keep running against its local `%LOCALAPPDATA%\feishu-codex-bridge` state.
 - Do not make archive writes a prerequisite for task execution, session persistence, or Feishu replies.
+
+## 2026-05-11 Verified Findings
+
+- Native session reuse is working with bridge-owned bindings under `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`.
+- Repeated `sessions:ask` smoke tests against the same Feishu chat reused the same native `thread_id`.
+- On this PC's installed Codex CLI, `codex exec` does not accept the short `-a` approval flag. Use the current long-form argument shape only.
+- Native session discoverability is weaker than resumability: `codex exec resume` can work even if `C:\Users\yckj0094\.codex\session_index.jsonl` has not indexed the session yet.
+- Current service state is healthy on `http://127.0.0.1:8787/health`, but the installed always-on mechanism is the Startup fallback rather than a registered Scheduled Task because task creation was denied on this machine.

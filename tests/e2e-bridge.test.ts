@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createConversationStore } from '../src/conversation-store.js';
+import { createNativeSessionStore } from '../src/native-session-store.js';
 import { createBridgeApplication, createRuntimeSummary, startHealthServer } from '../src/index.js';
 import { createTaskStore } from '../src/task-store.js';
 
@@ -27,14 +28,38 @@ afterEach(async () => {
 });
 
 describe('bridge application', () => {
-  it('wires the Feishu transport, authorization, and task runtime together with quiet chat replies', async () => {
+  it('reuses the same native worker session for repeated chat messages', async () => {
     const directory = await createTempDirectory();
     const store = createTaskStore({ dataFile: path.join(directory, 'tasks.json') });
     const conversationStore = createConversationStore({
       dataFile: path.join(directory, 'conversations.json'),
     });
+    const nativeSessionStore = createNativeSessionStore({
+      dataFile: path.join(directory, 'native-sessions.json'),
+      idleTimeoutMs: 24 * 60 * 60 * 1000,
+    });
     const outbound: Array<{ chatId: string; text: string }> = [];
     let registeredHandler: ((message: unknown) => Promise<void> | void) | undefined;
+    const nativeRunner = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'analysis complete',
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false,
+          sessionId: 'sess_1',
+          lastMessage: 'analysis resumed',
+        }),
+    };
 
     const application = createBridgeApplication({
       config: {
@@ -46,6 +71,7 @@ describe('bridge application', () => {
         codexApprovalPolicy: 'never',
         codexSandboxMode: 'workspace-write',
         codexTimeoutMs: 60000,
+        nativeSessionIdleTimeoutMs: 24 * 60 * 60 * 1000,
         port: 8787,
       },
       transport: {
@@ -59,6 +85,7 @@ describe('bridge application', () => {
       },
       store,
       conversationStore,
+      nativeSessionStore,
       runtimePaths: {
         serviceBaseDir: directory,
         dataDir: directory,
@@ -67,6 +94,7 @@ describe('bridge application', () => {
         tasksFile: path.join(directory, 'tasks.json'),
         conversationsFile: path.join(directory, 'conversations.json'),
         conversationsDir: path.join(directory, 'conversations'),
+        nativeSessionRegistryFile: path.join(directory, 'native-sessions.json'),
         stdoutLogFile: path.join(directory, 'stdout.log'),
         stderrLogFile: path.join(directory, 'stderr.log'),
         pidFile: path.join(directory, 'bridge.pid'),
@@ -74,13 +102,9 @@ describe('bridge application', () => {
         healthUrl: 'http://127.0.0.1:8787/health',
       },
       runner: {
-        run: vi.fn(async () => ({
-          exitCode: 0,
-          stdout: 'analysis complete',
-          stderr: '',
-          timedOut: false,
-        })),
+        run: vi.fn(),
       },
+      nativeRunner,
     });
 
     await application.start();
@@ -99,15 +123,39 @@ describe('bridge application', () => {
         },
       },
     });
+    await registeredHandler?.({
+      event: {
+        sender: {
+          sender_id: {
+            open_id: 'ou_1',
+          },
+        },
+        message: {
+          message_id: 'om_2',
+          chat_id: 'oc_1',
+          message_type: 'text',
+          content: JSON.stringify({ text: '/ask inspect again' }),
+        },
+      },
+    });
     await application.taskRuntime.idle();
     await vi.waitFor(() => {
-      expect(outbound).toHaveLength(1);
+      expect(outbound).toHaveLength(2);
     });
 
     expect(outbound[0]?.text).toContain('analysis complete');
+    expect(outbound[1]?.text).toContain('analysis resumed');
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ mode: 'start' }),
+    );
+    expect(nativeRunner.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ mode: 'resume', codexSessionId: 'sess_1' }),
+    );
     await expect(
       readFile(path.join(directory, 'conversations', 'session_oc_1.md'), 'utf8'),
-    ).resolves.toContain('analysis complete');
+    ).resolves.toContain('analysis resumed');
   });
 
   it('reports the runtime summary', () => {
