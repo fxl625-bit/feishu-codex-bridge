@@ -229,7 +229,7 @@ git commit -m "feat: add pc-side session continuation"
 - Modify: `skills/feishu-codex-bridge-ops/references/bridge-architecture.md`
 - Modify: `skills/feishu-codex-bridge-ops/references/bridge-operations.md`
 - Update: `F:\obsidian\wiki\raw\AI-projects\feishu-codex-bridge\ARCHIVE.md`
-- Update: `F:\obsidian\wiki\skills\packages\feishu-codex-bridge-ops\**`
+- Update: `<archive-root>/wiki/skills\packages\feishu-codex-bridge-ops\**`
 
 - [ ] **Step 1: Write the failing verification checks**
 
@@ -246,7 +246,7 @@ Run:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File skills/feishu-codex-bridge-ops/scripts/verify-bridge-skill-target.ps1
-python F:\obsidian\wiki\skills\tools\validate_scan_ready.py
+python <archive-root>/wiki/skills\tools\validate_scan_ready.py
 ```
 
 Expected: target verification passes, but the current docs do not yet describe the upgraded session flow.
@@ -265,7 +265,7 @@ Update:
 Run:
 
 ```bash
-python F:\obsidian\wiki\skills\tools\validate_scan_ready.py
+python <archive-root>/wiki/skills\tools\validate_scan_ready.py
 ```
 
 Expected: PASS with updated scan-ready package structure intact.
