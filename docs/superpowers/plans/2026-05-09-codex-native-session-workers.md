@@ -375,8 +375,8 @@ Run:
 
 ```powershell
 codex resume --help
-Get-ChildItem C:\Users\yckj0094\.codex\sessions
-Get-Content C:\Users\yckj0094\.codex\session_index.jsonl -Tail 20
+Get-ChildItem %USERPROFILE%\.codex\sessions
+Get-Content %USERPROFILE%\.codex\session_index.jsonl -Tail 20
 ```
 
 Expected:
