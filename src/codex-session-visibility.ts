@@ -247,23 +247,31 @@ async function ensureGlobalStateVisibility(input: {
   }
 
   const atomState = ensureObjectMap(state, 'electron-persisted-atom-state');
+  const normalizedWorkspaceRoot = normalizeWorkspaceRoot(input.workspaceRoot);
+
   const legacyProjectlessThreadIds = ensureStringArray(state, 'projectless-thread-ids');
-  const projectlessThreadIds = ensureStringArray(atomState, 'projectless-thread-ids');
-  mergeUniqueStrings(projectlessThreadIds, legacyProjectlessThreadIds);
-  if (!projectlessThreadIds.includes(input.sessionId)) {
-    projectlessThreadIds.push(input.sessionId);
-  }
+  const atomProjectlessThreadIds = ensureStringArray(atomState, 'projectless-thread-ids');
+  mergeUniqueStrings(legacyProjectlessThreadIds, atomProjectlessThreadIds);
+  mergeUniqueStrings(atomProjectlessThreadIds, legacyProjectlessThreadIds);
+  ensureStringPresent(legacyProjectlessThreadIds, input.sessionId);
+  ensureStringPresent(atomProjectlessThreadIds, input.sessionId);
 
   const legacyWorkspaceHints = ensureStringMap(state, 'thread-workspace-root-hints');
-  if (input.workspaceRoot) {
-    const workspaceHints = ensureStringMap(atomState, 'thread-workspace-root-hints');
-    mergeStringMap(workspaceHints, legacyWorkspaceHints);
-    if (!workspaceHints[input.sessionId]) {
-      workspaceHints[input.sessionId] = input.workspaceRoot;
-    }
+  const atomWorkspaceHints = ensureStringMap(atomState, 'thread-workspace-root-hints');
+  mergeStringMap(legacyWorkspaceHints, atomWorkspaceHints);
+  mergeStringMap(atomWorkspaceHints, legacyWorkspaceHints);
+  if (normalizedWorkspaceRoot) {
+    legacyWorkspaceHints[input.sessionId] = normalizedWorkspaceRoot;
+    atomWorkspaceHints[input.sessionId] = normalizedWorkspaceRoot;
+    const activeWorkspaceRoots = ensureStringArray(state, 'active-workspace-roots');
+    const projectOrder = ensureStringArray(state, 'project-order');
+    const savedWorkspaceRoots = ensureStringArray(state, 'electron-saved-workspace-roots');
+    moveStringToFront(activeWorkspaceRoots, normalizedWorkspaceRoot);
+    moveStringToFront(projectOrder, normalizedWorkspaceRoot);
+    moveStringToFront(savedWorkspaceRoots, normalizedWorkspaceRoot);
   } else {
-    const workspaceHints = ensureStringMap(atomState, 'thread-workspace-root-hints');
-    mergeStringMap(workspaceHints, legacyWorkspaceHints);
+    mergeStringMap(legacyWorkspaceHints, atomWorkspaceHints);
+    mergeStringMap(atomWorkspaceHints, legacyWorkspaceHints);
   }
 
   await writeFile(input.globalStateFile, JSON.stringify(state), 'utf8');
@@ -320,12 +328,45 @@ function mergeUniqueStrings(target: string[], source: string[]): void {
   }
 }
 
+function ensureStringPresent(target: string[], value: string): void {
+  if (!target.includes(value)) {
+    target.push(value);
+  }
+}
+
+function moveStringToFront(target: string[], value: string): void {
+  const filtered = target.filter((entry) => entry !== value);
+  target.length = 0;
+  target.push(value, ...filtered);
+}
+
 function mergeStringMap(target: Record<string, string>, source: Record<string, string>): void {
   for (const [key, value] of Object.entries(source)) {
     if (!(key in target)) {
       target[key] = value;
     }
   }
+}
+
+function normalizeWorkspaceRoot(workspaceRoot?: string): string | undefined {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+
+  const trimmed = workspaceRoot.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith('\\\\?\\UNC\\')) {
+    return `\\\\${trimmed.slice('\\\\?\\UNC\\'.length)}`;
+  }
+
+  if (trimmed.startsWith('\\\\?\\')) {
+    return trimmed.slice('\\\\?\\'.length);
+  }
+
+  return trimmed;
 }
 
 function escapeJsonString(value: string): string {

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { BridgeInboundMessage, BridgeReply } from './bridge.js';
 import { ensureCodexSessionVisible } from './codex-session-visibility.js';
 import { CommandParseError, getCommandHelpText, parseCommand } from './commands.js';
@@ -312,34 +313,38 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
     const now = new Date().toISOString();
 
     if (binding && binding.expiresAt > now) {
-      const resumed = await deps.nativeRunner.run({
-        mode: 'resume',
-        codexSessionId: binding.codexSessionId,
-        prompt: task.prompt,
-        workspaceRoot: binding.workspaceRoot,
-        sandboxMode,
-        timeoutMs: deps.config.codexTimeoutMs,
-        tempDir: deps.runtimePaths.runDir,
-        model: deps.config.codexModel,
-      });
-
-      if (resumed.exitCode === 0 && !resumed.timedOut) {
-        await deps.nativeSessionStore.touch(task.chatId, task.kind);
-        await ensureCodexSessionVisible({
-          codexHomeDir: deps.runtimePaths.codexHomeDir,
-          sessionId: binding.codexSessionId,
+      if (await shouldRecreateBindingForUiVisibility(binding.codexSessionId)) {
+        await deps.nativeSessionStore.delete(task.chatId, task.kind);
+      } else {
+        const resumed = await deps.nativeRunner.run({
+          mode: 'resume',
+          codexSessionId: binding.codexSessionId,
           prompt: task.prompt,
-          updatedAt: new Date().toISOString(),
           workspaceRoot: binding.workspaceRoot,
+          sandboxMode,
+          timeoutMs: deps.config.codexTimeoutMs,
+          tempDir: deps.runtimePaths.runDir,
+          model: deps.config.codexModel,
         });
-        return resumed;
-      }
 
-      if (!isMissingNativeSessionError(resumed.stderr)) {
-        return resumed;
-      }
+        if (resumed.exitCode === 0 && !resumed.timedOut) {
+          await deps.nativeSessionStore.touch(task.chatId, task.kind);
+          await ensureCodexSessionVisible({
+            codexHomeDir: deps.runtimePaths.codexHomeDir,
+            sessionId: binding.codexSessionId,
+            prompt: task.prompt,
+            updatedAt: new Date().toISOString(),
+            workspaceRoot: binding.workspaceRoot,
+          });
+          return resumed;
+        }
 
-      await deps.nativeSessionStore.delete(task.chatId, task.kind);
+        if (!isMissingNativeSessionError(resumed.stderr)) {
+          return resumed;
+        }
+
+        await deps.nativeSessionStore.delete(task.chatId, task.kind);
+      }
     } else if (binding) {
       await deps.nativeSessionStore.delete(task.chatId, task.kind);
     }
@@ -372,6 +377,41 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
     return started;
   }
 
+  async function shouldRecreateBindingForUiVisibility(codexSessionId: string): Promise<boolean> {
+    const sessionFile = await findCodexSessionFile(codexSessionId);
+    if (!sessionFile) {
+      return false;
+    }
+
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const content = await readFile(sessionFile, 'utf8');
+      for (const rawLine of content.split(/\r?\n/u)) {
+        const line = rawLine.trim();
+        if (!line) {
+          continue;
+        }
+
+        const parsed = JSON.parse(line) as {
+          type?: string;
+          payload?: { source?: string };
+        };
+        if (parsed.type === 'session_meta') {
+          return parsed.payload?.source === 'exec';
+        }
+      }
+    } catch {
+      return false;
+    }
+
+    return false;
+  }
+
+  async function findCodexSessionFile(codexSessionId: string): Promise<string | undefined> {
+    const sessionsRoot = path.join(deps.runtimePaths.codexHomeDir, 'sessions');
+    return await walkForSessionFile(sessionsRoot, codexSessionId);
+  }
+
   return {
     handleInboundMessage,
     continueSession,
@@ -379,4 +419,29 @@ export function createTaskRuntime(deps: TaskRuntimeDependencies) {
       await Promise.all([...queues.values()]);
     },
   };
+}
+
+async function walkForSessionFile(directory: string, sessionId: string): Promise<string | undefined> {
+  try {
+    const { readdir } = await import('node:fs/promises');
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        const nested = await walkForSessionFile(candidate, sessionId);
+        if (nested) {
+          return nested;
+        }
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith(`${sessionId}.jsonl`)) {
+        return candidate;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }

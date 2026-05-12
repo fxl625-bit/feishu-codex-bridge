@@ -17,7 +17,7 @@ import { createTaskStore, type TaskStore } from './task-store.js';
 import type { AppConfig, AppMetadata, RuntimePaths, RuntimeSummaryInput } from './types.js';
 
 const APP_NAME = 'feishu-codex-bridge';
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '1.0.0';
 
 export function createAppMetadata(): AppMetadata {
   return {

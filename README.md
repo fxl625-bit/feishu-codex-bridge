@@ -4,6 +4,11 @@ Control Codex CLI from Feishu messages on a Windows PC and receive replies back 
 
 The bridge now supports a local-visible, resumable native-session flow: each Feishu `chatId` maps to a stable Codex-native session worker that can be inspected on the PC, resumed locally, and synced into the canonical archive.
 
+v1.0 freeze:
+- Desktop visibility now depends on session files, `session_index.jsonl`, and `.codex-global-state.json` workspace hints.
+- Keep `F:\CODEX\workspaces\feishu-codex` as the canonical workspace root for this bridge.
+- Restart the bridge service after code changes.
+
 ## Planned MVP
 
 - Receive Feishu bot messages over long connection mode

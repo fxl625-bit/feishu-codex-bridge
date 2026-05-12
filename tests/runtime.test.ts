@@ -137,7 +137,7 @@ describe('task runtime', () => {
     ).resolves.toContain('analysis complete');
   });
 
-  it('reuses the same native session for repeated asks from one chat', async () => {
+  it('reuses the same native session for repeated asks from one chat after the binding is UI-visible', async () => {
     const directory = await createTempDirectory();
     const nativeRunner = {
       run: vi
@@ -162,6 +162,22 @@ describe('task runtime', () => {
     const harness = createRuntimeHarness(directory, { nativeRunner });
 
     await seedNativeSessionArtifacts(directory, 'sess_1');
+    await writeFile(
+      path.join(directory, '.codex', 'sessions', '2026', '05', '11', 'rollout-2026-05-11T10-40-29-sess_1.jsonl'),
+      `${JSON.stringify({
+        timestamp: '2026-05-11T02:40:30.066Z',
+        type: 'session_meta',
+        payload: {
+          id: 'sess_1',
+          timestamp: '2026-05-11T02:40:29.837Z',
+          cwd: 'C:/workspace',
+          originator: 'Codex Desktop',
+          cli_version: '0.120.0',
+          source: 'vscode',
+        },
+      })}\n`,
+      'utf8',
+    );
 
     await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
     await harness.runtime.handleInboundMessage(
@@ -189,11 +205,23 @@ describe('task runtime', () => {
     const globalState = JSON.parse(
       await readFile(path.join(directory, '.codex', '.codex-global-state.json'), 'utf8'),
     ) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+      'active-workspace-roots': string[];
+      'project-order': string[];
+      'electron-saved-workspace-roots': string[];
       'electron-persisted-atom-state': {
         'projectless-thread-ids': string[];
         'thread-workspace-root-hints': Record<string, string>;
       };
     };
+    expect(globalState['projectless-thread-ids']).toContain('sess_1');
+    expect(globalState['thread-workspace-root-hints']).toMatchObject({
+      sess_1: 'C:/workspace',
+    });
+    expect(globalState['active-workspace-roots'][0]).toBe('C:/workspace');
+    expect(globalState['project-order'][0]).toBe('C:/workspace');
+    expect(globalState['electron-saved-workspace-roots'][0]).toBe('C:/workspace');
     expect(globalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
       'sess_1',
     );
@@ -239,11 +267,23 @@ describe('task runtime', () => {
     const globalState = JSON.parse(
       await readFile(path.join(directory, '.codex', '.codex-global-state.json'), 'utf8'),
     ) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+      'active-workspace-roots': string[];
+      'project-order': string[];
+      'electron-saved-workspace-roots': string[];
       'electron-persisted-atom-state': {
         'projectless-thread-ids': string[];
         'thread-workspace-root-hints': Record<string, string>;
       };
     };
+    expect(globalState['projectless-thread-ids']).toContain('sess_1');
+    expect(globalState['thread-workspace-root-hints']).toMatchObject({
+      sess_1: 'C:/workspace',
+    });
+    expect(globalState['active-workspace-roots'][0]).toBe('C:/workspace');
+    expect(globalState['project-order'][0]).toBe('C:/workspace');
+    expect(globalState['electron-saved-workspace-roots'][0]).toBe('C:/workspace');
     expect(globalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
       'sess_1',
     );
@@ -254,7 +294,7 @@ describe('task runtime', () => {
     });
   });
 
-  it('recreates a binding if native resume fails because the session no longer exists', async () => {
+  it('recreates a UI-visible binding if native resume fails because the session no longer exists', async () => {
     const directory = await createTempDirectory();
     const nativeRunner = {
       run: vi
@@ -286,6 +326,22 @@ describe('task runtime', () => {
     const harness = createRuntimeHarness(directory, { nativeRunner });
 
     await seedNativeSessionArtifacts(directory, 'sess_1');
+    await writeFile(
+      path.join(directory, '.codex', 'sessions', '2026', '05', '11', 'rollout-2026-05-11T10-40-29-sess_1.jsonl'),
+      `${JSON.stringify({
+        timestamp: '2026-05-11T02:40:30.066Z',
+        type: 'session_meta',
+        payload: {
+          id: 'sess_1',
+          timestamp: '2026-05-11T02:40:29.837Z',
+          cwd: 'C:/workspace',
+          originator: 'Codex Desktop',
+          cli_version: '0.120.0',
+          source: 'vscode',
+        },
+      })}\n`,
+      'utf8',
+    );
     await seedNativeSessionArtifacts(directory, 'sess_2');
 
     await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask first' }));
@@ -312,6 +368,46 @@ describe('task runtime', () => {
     await expect(harness.nativeSessionStore.getByChatId('oc_1', 'ask')).resolves.toMatchObject({
       codexSessionId: 'sess_2',
     });
+  });
+
+  it('recreates an existing exec-sourced binding so future asks land on a UI-visible thread', async () => {
+    const directory = await createTempDirectory();
+    const nativeRunner = {
+      run: vi.fn().mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        sessionId: 'sess_2',
+        lastMessage: 'migrated',
+      }),
+    };
+    const harness = createRuntimeHarness(directory, { nativeRunner });
+
+    await seedNativeSessionArtifacts(directory, 'sess_1');
+    await harness.nativeSessionStore.upsert({
+      chatId: 'oc_1',
+      codexSessionId: 'sess_1',
+      workerKind: 'ask',
+      workspaceRoot: 'C:/workspace',
+    });
+
+    await seedNativeSessionArtifacts(directory, 'sess_2');
+
+    await harness.runtime.handleInboundMessage(createInboundMessage({ text: '/ask migrate me' }));
+    await harness.runtime.idle();
+
+    expect(nativeRunner.run).toHaveBeenCalledTimes(1);
+    expect(nativeRunner.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'start',
+        prompt: 'migrate me',
+      }),
+    );
+    await expect(harness.nativeSessionStore.getByChatId('oc_1', 'ask')).resolves.toMatchObject({
+      codexSessionId: 'sess_2',
+    });
+    expect(harness.replies).toEqual(['migrated']);
   });
 
   it('replies to plain text chat like natural conversation on success', async () => {

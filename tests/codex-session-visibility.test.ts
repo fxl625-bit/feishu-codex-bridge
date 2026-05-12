@@ -107,13 +107,31 @@ describe('codex session visibility', () => {
     expect(updatedSession).toContain('"thread_name":"Feishu: please reply bridge inbound ok"');
 
     const updatedGlobalState = JSON.parse(await readFile(globalStateFile, 'utf8')) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+      'active-workspace-roots': string[];
+      'project-order': string[];
+      'electron-saved-workspace-roots': string[];
       'electron-persisted-atom-state': {
         'projectless-thread-ids': string[];
         'thread-workspace-root-hints': Record<string, string>;
       };
     };
+    expect(updatedGlobalState['projectless-thread-ids']).toContain(
+      '019e14e8-5053-7b60-af61-6963d491b978',
+    );
     expect(updatedGlobalState['electron-persisted-atom-state']['projectless-thread-ids']).toContain(
       '019e14e8-5053-7b60-af61-6963d491b978',
+    );
+    expect(updatedGlobalState['thread-workspace-root-hints']).toMatchObject({
+      '019e14e8-5053-7b60-af61-6963d491b978': 'F:/CODEX/workspaces/feishu-codex',
+    });
+    expect(updatedGlobalState['active-workspace-roots'][0]).toBe(
+      'F:/CODEX/workspaces/feishu-codex',
+    );
+    expect(updatedGlobalState['project-order'][0]).toBe('F:/CODEX/workspaces/feishu-codex');
+    expect(updatedGlobalState['electron-saved-workspace-roots'][0]).toBe(
+      'F:/CODEX/workspaces/feishu-codex',
     );
     expect(
       updatedGlobalState['electron-persisted-atom-state']['thread-workspace-root-hints'],
@@ -243,6 +261,9 @@ describe('codex session visibility', () => {
     const updatedGlobalState = JSON.parse(await readFile(globalStateFile, 'utf8')) as {
       'projectless-thread-ids': string[];
       'thread-workspace-root-hints': Record<string, string>;
+      'active-workspace-roots': string[];
+      'project-order': string[];
+      'electron-saved-workspace-roots': string[];
       'electron-persisted-atom-state': {
         'projectless-thread-ids': string[];
         'thread-workspace-root-hints': Record<string, string>;
@@ -250,6 +271,14 @@ describe('codex session visibility', () => {
     };
     expect(updatedGlobalState['projectless-thread-ids']).toContain(
       '019dddae-41bd-7a40-97de-68a4d7a9c95b',
+    );
+    expect(updatedGlobalState['thread-workspace-root-hints']).toMatchObject({
+      '019dddae-41bd-7a40-97de-68a4d7a9c95b': 'C:/Users/example/Documents/Codex',
+    });
+    expect(updatedGlobalState['active-workspace-roots'][0]).toBe('F:/CODEX/workspaces/feishu-codex');
+    expect(updatedGlobalState['project-order'][0]).toBe('F:/CODEX/workspaces/feishu-codex');
+    expect(updatedGlobalState['electron-saved-workspace-roots'][0]).toBe(
+      'F:/CODEX/workspaces/feishu-codex',
     );
     expect(updatedGlobalState['electron-persisted-atom-state']['projectless-thread-ids']).toEqual(
       expect.arrayContaining([
@@ -265,5 +294,66 @@ describe('codex session visibility', () => {
       '019dddae-41bd-7a40-97de-68a4d7a9c95b': 'C:/Users/example/Documents/Codex',
       '019e1500-4275-7db1-9f23-914f8afd973d': 'C:/Users/example/Documents/Codex',
     });
+  });
+
+  it('normalizes a device-path workspace root before persisting visibility state', async () => {
+    const directory = await createTempDirectory();
+    const codexHome = path.join(directory, '.codex');
+    const sessionsDir = path.join(codexHome, 'sessions', '2026', '05', '12');
+    const sessionFile = path.join(
+      sessionsDir,
+      'rollout-2026-05-12T10-40-29-019e1a37-10b5-7d43-836b-273915e4df5b.jsonl',
+    );
+    const globalStateFile = path.join(codexHome, '.codex-global-state.json');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      sessionFile,
+      `${JSON.stringify({
+        timestamp: '2026-05-12T03:24:36.980Z',
+        type: 'session_meta',
+        payload: {
+          id: '019e1a37-10b5-7d43-836b-273915e4df5b',
+          timestamp: '2026-05-12T03:24:36.980Z',
+          cwd: '\\\\?\\F:\\CODEX\\workspaces\\feishu-codex',
+          originator: 'Codex Desktop',
+          cli_version: '0.120.0',
+          source: 'vscode',
+        },
+      })}\n`,
+      'utf8',
+    );
+    await writeFile(globalStateFile, JSON.stringify({}), 'utf8');
+
+    await ensureCodexSessionVisible({
+      codexHomeDir: codexHome,
+      sessionId: '019e1a37-10b5-7d43-836b-273915e4df5b',
+      prompt: 'please reply ui-binding smoke ok 2',
+      updatedAt: '2026-05-12T03:24:42.134Z',
+    });
+
+    const updatedGlobalState = JSON.parse(await readFile(globalStateFile, 'utf8')) as {
+      'projectless-thread-ids': string[];
+      'thread-workspace-root-hints': Record<string, string>;
+      'active-workspace-roots': string[];
+      'project-order': string[];
+      'electron-saved-workspace-roots': string[];
+      'electron-persisted-atom-state': {
+        'projectless-thread-ids': string[];
+        'thread-workspace-root-hints': Record<string, string>;
+      };
+    };
+    expect(updatedGlobalState['thread-workspace-root-hints']).toMatchObject({
+      '019e1a37-10b5-7d43-836b-273915e4df5b': 'F:\\CODEX\\workspaces\\feishu-codex',
+    });
+    expect(updatedGlobalState['active-workspace-roots'][0]).toBe('F:\\CODEX\\workspaces\\feishu-codex');
+    expect(updatedGlobalState['project-order'][0]).toBe('F:\\CODEX\\workspaces\\feishu-codex');
+    expect(updatedGlobalState['electron-saved-workspace-roots'][0]).toBe(
+      'F:\\CODEX\\workspaces\\feishu-codex',
+    );
+    expect(updatedGlobalState['electron-persisted-atom-state']['thread-workspace-root-hints']).toMatchObject(
+      {
+        '019e1a37-10b5-7d43-836b-273915e4df5b': 'F:\\CODEX\\workspaces\\feishu-codex',
+      },
+    );
   });
 });
