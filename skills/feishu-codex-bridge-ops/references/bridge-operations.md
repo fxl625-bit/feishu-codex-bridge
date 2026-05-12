@@ -71,8 +71,8 @@ When verifying the native-worker upgrade, check all of these separately:
 4. Final-answer-only relay:
    - verify Feishu receives the final assistant answer without queue acknowledgements, transcript fragments, or token-summary noise
 5. Cross-client visibility:
-   - inspect `C:\Users\yckj0094\.codex\sessions`
-   - inspect `C:\Users\yckj0094\.codex\session_index.jsonl`
+   - inspect `%USERPROFILE%\.codex\sessions`
+   - inspect `%USERPROFILE%\.codex\session_index.jsonl`
    - check Codex CLI session surfaces
    - check Codex desktop history
    - check the VS Code Codex extension or panel if installed
@@ -176,8 +176,8 @@ The implementation plan names script-style entry points `sessions:list`, `sessio
 - `npm run service:status`
 - `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health | Select-Object -ExpandProperty Content`
 - `Get-Content F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
-- `Get-ChildItem C:\Users\yckj0094\.codex\sessions`
-- `Get-Content C:\Users\yckj0094\.codex\session_index.jsonl -Tail 20`
+- `Get-ChildItem %USERPROFILE%\.codex\sessions`
+- `Get-Content %USERPROFILE%\.codex\session_index.jsonl -Tail 20`
 
 ## Canonical Archive Location
 
@@ -196,5 +196,5 @@ Keep bridge operational history and handoff notes there instead of scattering du
 - Native session reuse is working with bridge-owned bindings under `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`.
 - Repeated `sessions:ask` smoke tests against the same Feishu chat reused the same native `thread_id`.
 - On this PC's installed Codex CLI, `codex exec` does not accept the short `-a` approval flag. Use the current long-form argument shape only.
-- Native session discoverability is weaker than resumability: `codex exec resume` can work even if `C:\Users\yckj0094\.codex\session_index.jsonl` has not indexed the session yet.
+- Native session discoverability is weaker than resumability: `codex exec resume` can work even if `%USERPROFILE%\.codex\session_index.jsonl` has not indexed the session yet.
 - Current service state is healthy on `http://127.0.0.1:8787/health`, but the installed always-on mechanism is the Startup fallback rather than a registered Scheduled Task because task creation was denied on this machine.
