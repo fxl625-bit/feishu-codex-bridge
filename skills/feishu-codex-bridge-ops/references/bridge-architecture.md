@@ -4,7 +4,7 @@
 
 This skill targets the Feishu Codex bridge in:
 
-- `C:\Users\yckj0094\Documents\Codex\2026-05-07\pc-codex`
+- `<project-root>`
 
 ## Verified Runtime Shape
 
