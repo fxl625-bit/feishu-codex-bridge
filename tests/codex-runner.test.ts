@@ -16,7 +16,7 @@ afterEach(() => {
 describe('codex runner', () => {
   it('prefers the Windows launcher command on win32', () => {
     const command = resolveCodexCommand('win32', {
-      PATH: 'C:\\Tools;C:\\Users\\yckj0094\\AppData\\Roaming\\npm',
+      PATH: 'C:\\Tools;%USERPROFILE%\\AppData\\Roaming\\npm',
     });
 
     expect(command.endsWith('codex.cmd')).toBe(true);
@@ -40,7 +40,7 @@ describe('codex runner', () => {
 
   it('prefers the Node entry point on Windows when the npm-installed codex package is available', () => {
     const invocation = buildInvocation(
-      'C:\\Users\\yckj0094\\AppData\\Roaming\\npm\\codex.cmd',
+      '%USERPROFILE%\\AppData\\Roaming\\npm\\codex.cmd',
       {
         kind: 'ask',
         prompt: 'reply bridge inbound ok',
