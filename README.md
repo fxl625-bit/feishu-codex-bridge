@@ -6,7 +6,7 @@ The bridge now supports a local-visible, resumable native-session flow: each Fei
 
 v1.0 freeze:
 - Desktop visibility now depends on session files, `session_index.jsonl`, and `.codex-global-state.json` workspace hints.
-- Keep `F:\CODEX\workspaces\feishu-codex` as the canonical workspace root for this bridge.
+- Keep the dedicated workspace root as the canonical workspace for this bridge.
 - Restart the bridge service after code changes.
 
 ## Planned MVP
@@ -28,20 +28,20 @@ The bridge is moving away from per-message cold-start `codex exec` runs. In the 
 
 ## Local Runtime Artifacts
 
-For this PC, the recommended layout is a dedicated `F:\CODEX` workspace so runtime files do not accumulate on `C:`.
+For Windows PCs, the recommended layout is a dedicated workspace drive so runtime files do not accumulate on the system drive.
 
 Recommended paths:
 
-- Codex task workspace: `F:\CODEX\workspaces\feishu-codex`
-- Bridge runtime root: `F:\CODEX\feishu-codex-bridge`
+- Codex task workspace: `<CODEX_WORKSPACE_ROOT>` (configured via `.env.local`)
+- Bridge runtime root: `<BRIDGE_SERVICE_BASE_DIR>` (configured via `.env.local`)
 
-With that layout, the bridge keeps session state under `F:\CODEX\feishu-codex-bridge`:
+With that layout, the bridge keeps session state under the runtime root:
 
-- Task store: `F:\CODEX\feishu-codex-bridge\data\tasks.json`
-- Conversation store: `F:\CODEX\feishu-codex-bridge\data\conversations.json`
-- Conversation transcripts: `F:\CODEX\feishu-codex-bridge\conversations\`
-- Native session bindings: `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
-- Native worker run artifacts: `F:\CODEX\feishu-codex-bridge\run\`
+- Task store: `<DATA_DIR>/tasks.json`
+- Conversation store: `<DATA_DIR>/conversations.json`
+- Conversation transcripts: `<CONVERSATIONS_DIR>/`
+- Native session bindings: `<DATA_DIR>/native-sessions.json`
+- Native worker run artifacts: `<RUN_DIR>/`
 
 ## Local development
 
@@ -54,7 +54,7 @@ Project setup and implementation are tracked under `docs/superpowers/`.
 
 ## Windows service mode
 
-For long-running Windows usage, use the repo-owned Task Scheduler scripts in [docs/windows-service.md](/C:/Users/yckj0094/Documents/Codex/2026-05-07/pc-codex/docs/windows-service.md).
+For long-running Windows usage, use the repo-owned Task Scheduler scripts in [docs/windows-service.md](docs/windows-service.md).
 
 ```powershell
 npm run build
@@ -95,14 +95,14 @@ Use the local session CLI to continue an existing Feishu conversation from the P
 
 For native-session verification, also confirm the underlying Codex-native session can be resumed from the same machine. The exact command surface depends on the installed Codex client version, but operators should verify at least:
 
-- the bridge-side session binding under `F:\CODEX\feishu-codex-bridge\data\native-sessions.json`
-- the matching native session metadata under `C:\Users\yckj0094\.codex\`
+- the bridge-side session binding under `<DATA_DIR>/native-sessions.json`
+- the matching native session metadata under the Codex home directory (typically `%USERPROFILE%\.codex\`)
 - local resume behavior with a native Codex command such as `codex resume <session-id>` if the installed CLI exposes that entry point
 
 If shared storage is working, check whether the same session is visible in Codex CLI session listings, Codex desktop session history, and the VS Code Codex extension or panel. Treat discoverability in those surfaces as machine-specific verified behavior, not as guaranteed product behavior.
 
 ## Archive Sync
 
-The canonical archive root remains `F:\obsidian\wiki\raw\AI-projects\feishu-codex-bridge`.
+The canonical archive root is configured via `BRIDGE_ARCHIVE_SYNC_DIR` in `.env.local`.
 
-Obsidian sync is best-effort only. If `F:` is unavailable, the bridge should not block task execution, but this machine is intentionally configured to keep its active bridge workspace on `F:\CODEX` rather than `C:`.
+Obsidian sync is best-effort only. If the archive drive is unavailable, the bridge should not block task execution, but operators should configure their active bridge workspace on a dedicated drive rather than the system drive.
