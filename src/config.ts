@@ -9,7 +9,7 @@ const DEFAULT_NATIVE_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PORT = 8787;
 const DEFAULT_SERVICE_DIR_NAME = 'feishu-codex-bridge';
 const DEFAULT_ARCHIVE_SYNC_DIR = path.join(
-  'F:/obsidian/wiki/raw/AI-projects/feishu-codex-bridge',
+  '',
   'conversations',
 );
 
@@ -128,7 +128,7 @@ export function resolveRuntimePaths(options: ResolveRuntimePathsOptions): Runtim
   const archiveSyncDir = resolveAbsoluteDirectory(
     options.env,
     'BRIDGE_ARCHIVE_SYNC_DIR',
-    DEFAULT_ARCHIVE_SYNC_DIR,
+    DEFAULT_ARCHIVE_SYNC_DIR === '' ? path.join(serviceBaseDir, 'archive', 'conversations') : DEFAULT_ARCHIVE_SYNC_DIR,
   );
   const codexHomeDir = resolveAbsoluteDirectory(
     options.env,
